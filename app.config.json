@@ -1,0 +1,121 @@
+{
+  "site": {
+    "name": "Astro i18n Starter",
+    "shortName": "Astro i18n",
+    "description": "A production-grade, multilingual RTL & LTR static site generator starter built with Astro v7, Tailwind CSS v4, and Paraglide JS.",
+    "author": "Astro Starter Team",
+    "contactEmail": "",
+    "socialImage": {
+      "path": "/og-default.png",
+      "width": 1200,
+      "height": 630
+    }
+  },
+  "brand": {
+    "defaultTheme": "system",
+    "preset": "indigo",
+    "fontPreset": "system",
+    "rtlFontPreset": "vazirmatn",
+    "socialCardMode": "branded",
+    "themeColor": "#4338ca",
+    "darkThemeColor": "#0f172a",
+    "backgroundColor": "#f8fafc",
+    "appleTouchIcon": {
+      "file": "apple-touch-icon.png",
+      "size": 180
+    },
+    "icons": [
+      {
+        "file": "icon-192.png",
+        "size": 192,
+        "purpose": "any"
+      },
+      {
+        "file": "icon-512.png",
+        "size": 512,
+        "purpose": "any"
+      }
+    ]
+  },
+  "ui": {
+    "ctaPage": "pricing",
+    "showSearch": true,
+    "showThemeToggle": true,
+    "showLanguageSwitcher": true,
+    "showTopLoadingBar": true,
+    "stickyHeader": true
+  },
+  "blog": {
+    "postsPerPage": 9,
+    "showReadingTime": true,
+    "showTableOfContents": true,
+    "showRelatedPosts": true
+  },
+  "content": {
+    "types": {
+      "pages": {
+        "enabled": true,
+        "base": "",
+        "index": false,
+        "paginated": false,
+        "feed": false,
+        "nav": true
+      },
+      "blog": {
+        "enabled": true,
+        "base": "blog",
+        "index": true,
+        "paginated": true,
+        "feed": true,
+        "nav": true
+      },
+      "projects": {
+        "enabled": true,
+        "base": "projects",
+        "index": true,
+        "paginated": false,
+        "feed": false,
+        "nav": true
+      }
+    }
+  },
+  "cookies": {
+    "enabled": true,
+    "consentVersion": 1,
+    "storageKey": "cookie_consent",
+    "expirationDays": 180
+  },
+  "social": {
+    "github": "https://github.com",
+    "twitter": "",
+    "linkedin": "",
+    "instagram": "",
+    "telegram": ""
+  },
+  "business": {
+    "type": "Organization",
+    "legalName": "",
+    "phone": "",
+    "whatsapp": "",
+    "telegram": "",
+    "address": "",
+    "city": "",
+    "country": "",
+    "workingHours": "",
+    "mapEmbedUrl": ""
+  },
+  "api": {
+    "provider": "custom",
+    "baseUrl": "",
+    "accessKey": "",
+    "turnstileSiteKey": "",
+    "timeoutMs": 10000,
+    "endpoints": {
+      "contact": "/contact"
+    }
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 3000
+  }
+}

@@ -1,0 +1,181 @@
+---
+import { render, type CollectionEntry } from 'astro:content';
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import Breadcrumbs from '@/components/Breadcrumbs.astro';
+import PageHero from '@/components/PageHero.astro';
+import HeroCopy from '@/components/HeroCopy.astro';
+import Icon from '@/components/Icon.astro';
+import {
+  buildBreadcrumbSchema,
+  getBreadcrumbs,
+  getHomeHref,
+  type GenericCollectionEntry,
+} from '@/libs/content/service';
+import {
+  getContentTypeIndexHref,
+  getContentTypeLabel,
+  type ContentTypeKey,
+} from '@/libs/content/types';
+import { parseContentEntryId } from '@/libs/content/entries';
+import { buildOgRouteKey, getSocialCard, type SocialCardContext } from '@/libs/content/social';
+import { absoluteUrl, siteConfig } from '@/libs/config/app';
+import { formatYear } from '@/i18n/format';
+import { getLocaleMeta, type Locale } from '@/i18n/locales';
+import * as m from '@/paraglide/messages';
+
+/**
+ * Entry page of a content type declared in `content.types`.
+ *
+ * Shared by every non-blog collection: hero, prose body, optional project meta
+ * (client, year, stack, live link) and the way back to the index. Blog entries
+ * keep `BlogPostView.astro` because they own taxonomy, related posts and feeds.
+ */
+interface Props {
+  contentType: ContentTypeKey;
+  entry: GenericCollectionEntry;
+  locale: Locale;
+  alternates: Partial<Record<Locale, string>>;
+  url: string;
+}
+
+const { contentType, entry, locale, alternates, url } = Astro.props;
+const { Content } = await render(entry as CollectionEntry<'projects'>);
+const { title, description, image, client, year, link, stack = [] } = entry.data;
+
+const typeLabel = getContentTypeLabel(contentType, locale);
+const indexHref = getContentTypeIndexHref(contentType, locale);
+
+const breadcrumbs = getBreadcrumbs(url, locale, {
+  home: m.nav_home({}, { locale }),
+  homeHref: await getHomeHref(locale),
+  blog: m.nav_blog({}, { locale }),
+  section: { label: typeLabel, href: indexHref },
+  current: title,
+});
+
+const { group } = parseContentEntryId(entry.id);
+const ogContext: SocialCardContext = {
+  routeKey: buildOgRouteKey('collection-entry', { contentType, group, locale }),
+  title,
+  subtitle: description,
+  kicker: typeLabel,
+  locale,
+};
+
+const canonicalUrl = absoluteUrl(url);
+const socialImage = await getSocialCard(image, ogContext);
+const socialImageUrl = socialImage.url;
+const meta = getLocaleMeta(locale);
+
+const schema = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'CreativeWork',
+    name: title,
+    description: description ?? m.site_description({}, { locale }),
+    image: socialImageUrl,
+    url: canonicalUrl,
+    inLanguage: meta.htmlLang,
+    // `year` is a four-digit delivery year, but schema.org expects an ISO 8601
+    // date, so it is expanded to the first day of that year.
+    ...(year ? { dateCreated: `${year}-01-01` } : {}),
+    creator: {
+      '@type': 'Organization',
+      name: siteConfig.name,
+      url: absoluteUrl(breadcrumbs[0].href),
+    },
+  },
+  buildBreadcrumbSchema(breadcrumbs, absoluteUrl),
+];
+
+const metaItems: { label: string; value: string }[] = [];
+if (client) metaItems.push({ label: `${m.projects_client({}, { locale })}`, value: client });
+if (year) metaItems.push({ label: `${m.projects_year({}, { locale })}`, value: formatYear(year, locale) });
+---
+
+<BaseLayout
+  title={title}
+  description={description}
+  image={image}
+  ogContext={ogContext}
+  type="article"
+  schema={schema}
+  locale={locale}
+  url={url}
+  alternates={alternates}
+  hero
+>
+  <PageHero slot="hero" image={image}>
+    <HeroCopy title={title} description={description} size="post">
+      <Fragment slot="prelude">
+        <Breadcrumbs
+          items={breadcrumbs}
+          locale={locale}
+          separator="chevron"
+          showHomeIcon={true}
+          surface="hero"
+          size="xs"
+          truncateLast
+        />
+      </Fragment>
+    </HeroCopy>
+  </PageHero>
+
+  <article class="w-full max-w-5xl">
+    {
+      (metaItems.length > 0 || stack.length > 0 || link) && (
+        <div class="mb-8 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-3 border-b border-border pb-6 text-sm">
+          {(metaItems.length > 0 || stack.length > 0) && (
+            <dl class="flex flex-wrap items-baseline gap-x-8 gap-y-3">
+              {metaItems.map((item) => (
+                <div class="flex items-baseline gap-2">
+                  <dt class="text-xs font-semibold uppercase tracking-wider text-muted">
+                    {item.label}
+                  </dt>
+                  <dd class="text-fg">{item.value}</dd>
+                </div>
+              ))}
+              {stack.length > 0 && (
+                <div class="flex flex-wrap items-baseline gap-2">
+                  <dt class="text-xs font-semibold uppercase tracking-wider text-muted">
+                    {m.projects_stack({}, { locale })}
+                  </dt>
+                  <dd class="flex flex-wrap gap-1.5">
+                    {stack.map((item) => (
+                      <span class="chip px-2.5 py-0.5 text-xs">{item}</span>
+                    ))}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
+          {link && (
+            <a
+              href={link}
+              rel="noopener noreferrer"
+              target="_blank"
+              class="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+            >
+              {m.projects_visit({}, { locale })}
+              <Icon name="arrow-right" size={14} class="rtl:rotate-180" />
+            </a>
+          )}
+        </div>
+      )
+    }
+
+    <div class="prose max-w-none">
+      <Content />
+    </div>
+
+    <footer class="mt-10 border-t border-border pt-6">
+      <a
+        href={indexHref}
+        class="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+      >
+        <Icon name="arrow-right" size={15} class="rotate-180 rtl:rotate-0" />
+        <span>{m.projects_back({}, { locale })}</span>
+      </a>
+    </footer>
+  </article>
+</BaseLayout>

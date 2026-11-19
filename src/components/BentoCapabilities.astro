@@ -1,0 +1,192 @@
+---
+/**
+ * Composable capability / feature Bento grid inspired by PrebuiltUI feature
+ * sections. Automatically switches between an asymmetric 6-column Bento layout
+ * when any card sets `wide: true` and a clean symmetric grid otherwise.
+ * Supports optional props with full localized defaults.
+ */
+import Icon from '@/components/Icon.astro';
+import PageSection from '@/components/PageSection.astro';
+import SectionHeader from '@/components/SectionHeader.astro';
+import { formatNumber } from '@/i18n/format';
+import type { Locale } from '@/i18n/locales';
+import { resolveComponentLocale, resolveOptionalHeader } from '@/libs/ui/locale';
+import * as m from '@/paraglide/messages';
+
+export interface BentoItem {
+  title: string;
+  description: string;
+  icon?: string;
+  indexLabel?: string;
+  href?: string;
+  wide?: boolean;
+}
+
+interface Props {
+  id?: string;
+  eyebrow?: string | null;
+  heading?: string | null;
+  subheading?: string | null;
+  items?: readonly BentoItem[];
+  locale?: Locale | string;
+  numbered?: boolean;
+  contained?: boolean;
+  surface?: 'default' | 'surface' | 'subtle';
+  spacing?: 'sm' | 'md' | 'lg';
+}
+
+const {
+  id,
+  eyebrow,
+  heading,
+  subheading,
+  items,
+  locale,
+  numbered = true,
+  contained = false,
+  surface = 'default',
+  spacing = 'md',
+} = Astro.props;
+
+const activeLocale = resolveComponentLocale(locale, Astro.url.pathname);
+const usingDefaults = items === undefined;
+
+const resolvedEyebrow = resolveOptionalHeader(
+  eyebrow,
+  usingDefaults,
+  m.block_bento_eyebrow({}, { locale: activeLocale })
+);
+const resolvedHeading = resolveOptionalHeader(
+  heading,
+  usingDefaults,
+  m.block_bento_heading({}, { locale: activeLocale })
+);
+const resolvedSubheading = resolveOptionalHeader(
+  subheading,
+  usingDefaults,
+  m.block_bento_subheading({}, { locale: activeLocale })
+);
+
+const resolvedItems: readonly BentoItem[] = items ?? [
+  {
+    title: m.block_bento_1_title({}, { locale: activeLocale }),
+    description: m.block_bento_1_desc({}, { locale: activeLocale }),
+    icon: 'globe',
+    wide: true,
+  },
+  {
+    title: m.block_bento_2_title({}, { locale: activeLocale }),
+    description: m.block_bento_2_desc({}, { locale: activeLocale }),
+    icon: 'palette',
+  },
+  {
+    title: m.block_bento_3_title({}, { locale: activeLocale }),
+    description: m.block_bento_3_desc({}, { locale: activeLocale }),
+    icon: 'code',
+  },
+  {
+    title: m.block_bento_4_title({}, { locale: activeLocale }),
+    description: m.block_bento_4_desc({}, { locale: activeLocale }),
+    icon: 'rocket',
+    wide: true,
+  },
+];
+
+const hasHeader = Boolean(resolvedEyebrow || resolvedHeading || resolvedSubheading);
+const hasAsymmetric = resolvedItems.some((item) => item.wide);
+const cardSurface = !contained && surface === 'surface' ? 'bg-bg' : 'bg-surface';
+---
+
+<PageSection
+  id={id}
+  surface={contained ? 'default' : surface}
+  spacing={contained ? 'none' : spacing}
+  bleed={contained}
+  class={contained ? 'not-prose my-10' : undefined}
+>
+  <SectionHeader
+    eyebrow={resolvedEyebrow}
+    heading={resolvedHeading}
+    subheading={resolvedSubheading}
+  />
+
+  <div
+    class:list={[
+      'grid grid-cols-1 gap-5',
+      hasHeader && 'mt-8',
+      hasAsymmetric ? 'md:grid-cols-6' : 'sm:grid-cols-2 lg:grid-cols-3',
+    ]}
+    data-trig-stagger
+    data-trig-stagger-mode="linear"
+    data-trig-stagger-delay="0.06"
+    data-trig-once="true"
+  >
+    {
+      resolvedItems.map((item, idx) => {
+        const displayIndex =
+          item.indexLabel ?? (numbered ? formatNumber(idx + 1, activeLocale) : null);
+        return (
+          <article
+            data-trig
+            class:list={[
+              'group relative flex flex-col justify-between rounded-2xl border border-border p-6 transition duration-200 hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-md sm:p-7',
+              cardSurface,
+              hasAsymmetric && (item.wide ? 'md:col-span-4' : 'md:col-span-2'),
+            ]}
+          >
+            <div>
+              <div class="flex items-center justify-between gap-3">
+                {item.icon ? (
+                  <span
+                    class="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-hover/70 text-primary"
+                    aria-hidden="true"
+                  >
+                    <Icon name={item.icon} size={20} />
+                  </span>
+                ) : (
+                  <span />
+                )}
+
+                {displayIndex && (
+                  <span class="text-xs font-semibold tabular-nums text-muted">
+                    {displayIndex}
+                  </span>
+                )}
+              </div>
+
+              <h3 class="mt-5 text-lg font-bold tracking-tight text-fg">
+                {item.href ? (
+                  <a
+                    href={item.href}
+                    class="transition-colors after:absolute after:inset-0 hover:text-primary focus-visible:outline-none"
+                  >
+                    {item.title}
+                  </a>
+                ) : (
+                  item.title
+                )}
+              </h3>
+
+              <p class="mt-2 text-sm leading-relaxed text-muted">
+                {item.description}
+              </p>
+            </div>
+
+            {item.href && (
+              <span
+                aria-hidden="true"
+                class="mt-5 inline-flex items-center gap-1.5 text-xs font-semibold text-primary"
+              >
+                <Icon
+                  name="arrow-right"
+                  size={15}
+                  class="transition-transform duration-200 group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5"
+                />
+              </span>
+            )}
+          </article>
+        );
+      })
+    }
+  </div>
+</PageSection>

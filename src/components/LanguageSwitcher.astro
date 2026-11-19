@@ -1,0 +1,128 @@
+---
+import { LOCALES, LOCALE_METADATA, type Locale } from '@/i18n/locales';
+import Icon from '@/components/Icon.astro';
+import Button from '@/components/Button.astro';
+import * as m from '@/paraglide/messages';
+
+interface Props {
+  currentLocale: Locale;
+  alternates: Partial<Record<Locale, string>>;
+}
+
+const { currentLocale, alternates } = Astro.props;
+---
+
+<div class="relative inline-block text-start" data-language-switcher>
+  <Button
+    type="button"
+    variant="glass"
+    size="sm"
+    icon="globe"
+    iconPosition="start"
+    data-switcher-button
+    aria-expanded="false"
+    aria-label={m.common_change_language({}, { locale: currentLocale })}
+    title={m.common_change_language({}, { locale: currentLocale })}
+    class="text-fg"
+  >
+    <span data-switcher-active lang="en" dir="ltr" class="text-xs font-semibold tracking-wide uppercase">{currentLocale}</span>
+  </Button>
+
+  <div
+    data-switcher-menu
+    class="absolute end-0 top-[calc(100%+6px)] z-50 hidden min-w-36 rounded-lg border border-border bg-surface p-1 shadow-lg"
+  >
+    {
+      LOCALES.map((loc) => {
+        const meta = LOCALE_METADATA[loc];
+        const targetUrl = alternates[loc];
+        const isCurrent = loc === currentLocale;
+        if (!targetUrl) {
+          return (
+            <span
+              class="flex w-full cursor-not-allowed items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm text-muted opacity-40"
+              aria-disabled="true"
+            >
+              <span class="truncate">{meta.name}</span>
+              <span lang="en" dir="ltr" class="text-[11px] font-semibold uppercase tracking-wide">{loc}</span>
+            </span>
+          );
+        }
+        return (
+          <a
+            href={targetUrl}
+            data-switcher-link
+            data-target={targetUrl}
+            aria-current={isCurrent ? 'true' : undefined}
+            class:list={[
+              'flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-surface-hover',
+              isCurrent ? 'bg-primary/10 font-medium text-primary' : 'text-fg',
+            ]}
+          >
+            <span class="truncate">{meta.name}</span>
+            <span class="flex items-center gap-1.5">
+              <span lang="en" dir="ltr" class="text-[11px] font-semibold uppercase tracking-wide opacity-60">{loc}</span>
+              <span data-switcher-check class:list={['shrink-0', !isCurrent && 'hidden']}>
+                <Icon name="check" size={14} />
+              </span>
+            </span>
+          </a>
+        );
+      })
+    }
+  </div>
+</div>
+
+<script>
+  function closeAllSwitchers() {
+    document.querySelectorAll<HTMLElement>('[data-switcher-menu]').forEach((menu) => {
+      menu.classList.add('hidden');
+    });
+    document
+      .querySelectorAll('[data-switcher-button]')
+      .forEach((button) => button.setAttribute('aria-expanded', 'false'));
+  }
+
+  function setupLanguageSwitcher() {
+    // Delegated listeners are bound once per document; they keep working across
+    // ClientRouter transitions because the elements are queried at event time.
+    if (document.documentElement.dataset.langSwitcherGlobal === 'true') return;
+    document.documentElement.dataset.langSwitcherGlobal = 'true';
+
+    document.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null;
+      const link = target?.closest<HTMLAnchorElement>('[data-switcher-link]');
+      if (link) {
+        event.preventDefault();
+        closeAllSwitchers();
+        if (link.dataset.target) window.location.assign(link.dataset.target);
+        return;
+      }
+
+      const button = target?.closest<HTMLButtonElement>('[data-switcher-button]');
+      if (button) {
+        event.stopPropagation();
+        const root = button.closest<HTMLElement>('[data-language-switcher]');
+        const menu = root?.querySelector<HTMLElement>('[data-switcher-menu]');
+        if (!menu) return;
+        const willOpen = menu.classList.contains('hidden');
+        closeAllSwitchers();
+        if (willOpen) {
+          menu.classList.remove('hidden');
+          button.setAttribute('aria-expanded', 'true');
+        }
+        return;
+      }
+
+      if (!target?.closest('[data-language-switcher]')) closeAllSwitchers();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeAllSwitchers();
+    });
+
+    document.addEventListener('astro:before-preparation', closeAllSwitchers);
+  }
+
+  setupLanguageSwitcher();
+</script>

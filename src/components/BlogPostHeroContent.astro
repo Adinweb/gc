@@ -1,0 +1,117 @@
+---
+/**
+ * Inner content for the hero band of a blog post: breadcrumbs, category links,
+ * the post heading, its description and the publication meta row.
+ *
+ * The heading and description come from the shared `HeroCopy`, so a post and a
+ * page never drift apart typographically. Rendered inside `PageHero`'s default
+ * slot, on top of the section's background image.
+ */
+import Breadcrumbs from '@/components/Breadcrumbs.astro';
+import HeroCopy from '@/components/HeroCopy.astro';
+import { getBlogIndexHref, type BreadcrumbItem } from '@/libs/content/service';
+import { buildBlogFilterQuery, getReadingTime } from '@/libs/content/blog';
+import { getCategoryLabel } from '@/libs/content/taxonomy';
+import type { Locale } from '@/i18n/locales';
+import { formatDate, formatNumber } from '@/i18n/format';
+import { siteConfig } from '@/libs/config/app';
+import * as m from '@/paraglide/messages';
+
+interface Props {
+  /** Rendered as the hero's single `<h1>`. */
+  title: string;
+  description?: string;
+  locale: Locale;
+  categories: string[];
+  author?: string;
+  /** Raw markdown body, used to derive the reading time. */
+  body?: string;
+  publishedAt: Date;
+  updatedAt?: Date;
+  breadcrumbs: BreadcrumbItem[];
+  headingTag?: 'h1' | 'h2';
+}
+
+const {
+  title,
+  description,
+  locale,
+  categories,
+  author,
+  body,
+  publishedAt,
+  updatedAt,
+  breadcrumbs,
+  headingTag = 'h1',
+} = Astro.props;
+
+const blogIndexHref = getBlogIndexHref(locale);
+const categoryHref = (category: string) =>
+  `${blogIndexHref}${buildBlogFilterQuery({ category, tags: [] })}`;
+
+const formattedDate = formatDate(publishedAt, locale, 'long');
+const hasUpdate = Boolean(updatedAt && updatedAt.getTime() > publishedAt.getTime());
+const formattedUpdatedDate = hasUpdate && updatedAt ? formatDate(updatedAt, locale, 'long') : null;
+const readingTime = getReadingTime(body);
+---
+
+<HeroCopy title={title} description={description} size="post" headingTag={headingTag}>
+  <Fragment slot="prelude">
+    <Breadcrumbs
+      items={breadcrumbs}
+      locale={locale}
+      separator="chevron"
+      showHomeIcon={true}
+      surface="hero"
+      size="xs"
+      truncateLast
+    />
+
+    {
+      categories.length > 0 && (
+        <ul class="mt-4 flex flex-wrap items-center gap-2">
+          {categories.map((category) => (
+            <li>
+              <a
+                href={categoryHref(category)}
+                class="hero-badge transition-colors hover:bg-hero-fg/20"
+              >
+                {getCategoryLabel(category, locale)}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </Fragment>
+
+  <div slot="default" class="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-hero-fg/90">
+    <span>{m.common_published_on({}, { locale })}</span>
+    <time datetime={publishedAt.toISOString()}>{formattedDate}</time>
+    {
+      formattedUpdatedDate && updatedAt && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span>{m.common_updated_on({}, { locale })}</span>
+          <time datetime={updatedAt.toISOString()}>{formattedUpdatedDate}</time>
+        </>
+      )
+    }
+    {
+      siteConfig.blog.showReadingTime && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span>{m.blog_read_time({ count: formatNumber(readingTime, locale) }, { locale })}</span>
+        </>
+      )
+    }
+    {
+      author && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span>{author}</span>
+        </>
+      )
+    }
+  </div>
+</HeroCopy>

@@ -1,0 +1,551 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { resolveImageOption, placeArtworkFor } from './lib/image-reference.mjs';
+import { postStub, stripLeadingHeading } from './lib/content-stub.mjs';
+import { findPlaceholderSlugs, placeholderSlugNotice, resolveSlug } from './lib/slug.mjs';
+import { collectionError, entryKeyError } from './lib/validate.mjs';
+import { readLocaleConfig } from './lib/locales.mjs';
+import {
+  escapeRegex,
+  parseFrontmatter,
+  stringifyFrontmatter,
+} from './lib/frontmatter.mjs';
+
+export { parseFrontmatter, stringifyFrontmatter };
+
+/**
+ * The post's cover is referenced relative to the entry file, so Astro resolves
+ * and optimizes it (see `scripts/lib/image-reference.mjs`).
+ */
+export function runCli() {
+  const args = process.argv.slice(2);
+  const groupSlug = args.find((a) => !a.startsWith('--'));
+
+  let collection = 'blog';
+  let fromLocale = '';
+  let customTitle = '';
+  let customDesc = '';
+  let hasCustomDesc = false;
+  let customDate = '';
+  let publishAll = false;
+  let hasDraftArg = false;
+  let isUpdate = false;
+  let isSyncFrontmatter = false;
+  let syncAll = false;
+  let updateHeading = true;
+  let customImage = '';
+  let noImage = false;
+  let customCategories = null;
+  let customTags = null;
+  let cloneFrom = '';
+  const titlesByLocale = {};
+  const descriptionsByLocale = {};
+  const slugsByLocale = {};
+  let jsonData = null;
+
+  for (const arg of args) {
+    if (arg === '--update') {
+      isUpdate = true;
+    } else if (arg === '--sync-frontmatter') {
+      isSyncFrontmatter = true;
+    } else if (arg === '--sync-all') {
+      syncAll = true;
+    } else if (arg.startsWith('--collection=')) {
+      collection = arg.slice(13);
+    } else if (arg.startsWith('--from=')) {
+      fromLocale = arg.slice(7);
+    } else if (arg.startsWith('--source=')) {
+      fromLocale = arg.slice(9);
+    } else if (arg.startsWith('--clone-from=')) {
+      cloneFrom = arg.slice(13);
+    } else if (arg.startsWith('--slug:')) {
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx !== -1) {
+        const loc = arg.slice(7, eqIdx);
+        slugsByLocale[loc] = arg.slice(eqIdx + 1);
+      }
+    } else if (arg.startsWith('--title=')) {
+      customTitle = arg.slice(8);
+    } else if (arg.startsWith('--desc=') || arg.startsWith('--description=')) {
+      customDesc = arg.startsWith('--desc=') ? arg.slice(7) : arg.slice(14);
+      hasCustomDesc = true;
+    } else if (arg.startsWith('--date=') || arg.startsWith('--publishedAt=')) {
+      customDate = arg.startsWith('--date=') ? arg.slice(7) : arg.slice(14);
+    } else if (arg.startsWith('--image=')) {
+      const raw = arg.slice(8).trim();
+      // The path is relative to the content file, the way Astro's `image()`
+      // helper resolves it. `none` opts out of a group-specific cover, and
+      // the post then uses the shared artwork.
+      const resolved = resolveImageOption(raw, '');
+      if (resolved === null) {
+        console.error(
+          `❌ Invalid --image value: "${raw}". Use a path relative to the content file such as "cover.png", or "none" to opt out.`
+        );
+        process.exit(1);
+      }
+      noImage = resolved === '';
+      customImage = resolved;
+    } else if (arg.startsWith('--categories=') || arg.startsWith('--category=')) {
+      const rawValue = arg.slice(arg.startsWith('--categories=') ? 13 : 11);
+      const values = rawValue
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      customCategories = [...(customCategories ?? []), ...values];
+    } else if (arg.startsWith('--title:')) {
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx !== -1) {
+        const loc = arg.slice(8, eqIdx);
+        titlesByLocale[loc] = arg.slice(eqIdx + 1);
+      }
+    } else if (arg.startsWith('--desc:') || arg.startsWith('--description:')) {
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx !== -1) {
+        const prefixLen = arg.startsWith('--desc:') ? 7 : 14;
+        const loc = arg.slice(prefixLen, eqIdx);
+        descriptionsByLocale[loc] = arg.slice(eqIdx + 1);
+      }
+    } else if (arg.startsWith('--tags=') || arg.startsWith('--tag=')) {
+      const rawValue = arg.slice(arg.startsWith('--tags=') ? 7 : 6);
+      const values = rawValue
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      customTags = [...(customTags ?? []), ...values];
+    } else if (arg.startsWith('--data=')) {
+      try {
+        jsonData = JSON.parse(arg.slice(7));
+      } catch (e) {
+        console.error('❌ Failed to parse --data JSON:', e.message);
+        process.exit(1);
+      }
+    } else if (arg.startsWith('--file=')) {
+      try {
+        jsonData = JSON.parse(fs.readFileSync(arg.slice(7), 'utf-8'));
+      } catch (e) {
+        console.error('❌ Failed to parse --file JSON:', e.message);
+        process.exit(1);
+      }
+    } else if (arg === '--publish' || arg === '--no-draft' || arg === '--draft=false') {
+      publishAll = true;
+      hasDraftArg = true;
+    } else if (arg === '--draft=true' || arg === '--draft') {
+      publishAll = false;
+      hasDraftArg = true;
+    } else if (arg === '--no-update-heading') {
+      updateHeading = false;
+    }
+  }
+
+  if (!groupSlug) {
+    console.log(`
+Usage:
+  pnpm run new:post <group-slug> [options]
+
+Creation Options:
+  --collection=<name>          Content collection name (default: "blog")
+  --title="<title>"            Title for the post (source locale)
+  --desc="<description>"       Description for the post
+  --from=<locale>              Source locale of the article (default: the base locale)
+  --clone-from=<group>         Reuse the body of an existing article group
+  --publish / --draft=false    Publish the source and locales with real titles/descriptions
+  --category="a,b"             Blog category keys (repeatable, comma-separated)
+  --tags="x,y"                 Blog tag keys (repeatable, comma-separated)
+  --image=cover.png            Featured image, referenced relative to the content file
+  --image=none                 Use the shared hero artwork instead of a group-specific cover
+  --slug:<locale>="<slug>"     Native slug of one language (default: <group> for the source locale)
+
+Update / Sync Options:
+  --update                     Update an existing article group without rewriting markdown body
+  --sync-frontmatter           Synchronize frontmatter fields across all configured locale files
+  --title:<locale>="<title>"   Specify per-locale title (e.g. --title:fa="عنوان مقاله")
+  --desc:<locale>="<desc>"     Specify per-locale description
+  --date="YYYY-MM-DD"          Update publication date
+  --data='{...}'               JSON string mapping locales to { title, description }
+  --sync-all                   Force propagate source title/description placeholders to all locales
+  --no-update-heading          Do not auto-update markdown # Title heading in body
+`);
+    process.exit(1);
+  }
+
+  const keyError = entryKeyError(groupSlug, 'article group slug');
+  if (keyError) {
+    console.error(keyError);
+    process.exit(1);
+  }
+  const collectionNameError = collectionError(collection);
+  if (collectionNameError) {
+    console.error(collectionNameError);
+    process.exit(1);
+  }
+  if (cloneFrom) {
+    const cloneError = entryKeyError(cloneFrom, '--clone-from article group slug');
+    if (cloneError) {
+      console.error(cloneError);
+      process.exit(1);
+    }
+  }
+
+  // Ingest JSON data if supplied
+  if (jsonData && typeof jsonData === 'object') {
+    for (const [loc, fields] of Object.entries(jsonData)) {
+      if (typeof fields === 'object' && fields !== null) {
+        if (fields.title) titlesByLocale[loc] = fields.title;
+        if (fields.description || fields.desc) descriptionsByLocale[loc] = fields.description || fields.desc;
+      }
+    }
+  }
+
+  const rootDir = process.cwd();
+  const colDir = path.join(rootDir, 'src', 'content', collection);
+  if (!fs.existsSync(colDir)) {
+    console.error(`❌ Collection directory not found: ${colDir}`);
+    process.exit(1);
+  }
+
+  const targetDir = path.join(colDir, groupSlug);
+
+  const { locales: LOCALES, defaultLocale: cfgDefaultLocale } = readLocaleConfig(rootDir);
+  const defaultLocale = cfgDefaultLocale || 'en';
+  if (fromLocale && !LOCALES.includes(fromLocale)) {
+    console.error(
+      `❌ Unknown source locale "${fromLocale}". Registered locales: ${LOCALES.join(', ')}.`
+    );
+    process.exit(1);
+  }
+  const sourceLocale = fromLocale || defaultLocale;
+  const today = new Date().toISOString().split('T')[0];
+  const publishedLocales = [];
+  const draftLocales = [];
+
+  // -------------------------------------------------------------
+  // UPDATE / SYNC-FRONTMATTER MODE
+  // -------------------------------------------------------------
+  if (fs.existsSync(targetDir) && (isUpdate || isSyncFrontmatter)) {
+    console.log(`🔄 Updating existing article group: src/content/${collection}/${groupSlug}/`);
+    const updatedLocales = [];
+
+    // A custom cover has to sit next to the content, so it is copied into the
+    // group folder before the frontmatter is rewritten.
+    if (customImage) {
+      const placed = placeArtworkFor({
+        value: customImage,
+        rootDir,
+        groupDir: targetDir,
+        group: groupSlug,
+      });
+      if (!placed) {
+        console.warn(
+          `⚠️ Artwork "${customImage}" was not found next to the content (${path.relative(rootDir, targetDir)}) or in the project root.`
+        );
+        console.warn(`   The group artwork "./${groupSlug}.png" is used instead.`);
+        customImage = '';
+      } else {
+        customImage = placed;
+      }
+    }
+    const sourceTitle = customTitle || groupSlug.replace(/-/g, ' ');
+    const sourceFilePath = path.join(targetDir, `${sourceLocale}.mdx`);
+    const sourceFmData = fs.existsSync(sourceFilePath)
+      ? parseFrontmatter(fs.readFileSync(sourceFilePath, 'utf-8')).data
+      : null;
+
+    for (const loc of LOCALES) {
+      const filePath = path.join(targetDir, `${loc}.mdx`);
+      const isSource = loc === sourceLocale;
+
+      let fmData = {};
+      let body = '';
+
+      if (fs.existsSync(filePath)) {
+        const parsed = parseFrontmatter(fs.readFileSync(filePath, 'utf-8'));
+        fmData = parsed.data;
+        body = parsed.body;
+      } else {
+        const slug = resolveSlug(loc, groupSlug, sourceLocale, defaultLocale, slugsByLocale);
+        const baseTitle = sourceFmData?.title || sourceTitle;
+        const baseDesc =
+          typeof sourceFmData?.description === 'string' ? sourceFmData.description : '';
+        const fallbackTitle = isSource ? baseTitle : `[TODO: ${loc}] ${baseTitle}`;
+        const fallbackDesc = baseDesc
+          ? isSource
+            ? baseDesc
+            : `[TODO: ${loc}] ${baseDesc}`
+          : '';
+        const hasPlaceholder = [fallbackTitle, fallbackDesc].some((v) => v.includes('[TODO'));
+        fmData = {
+          title: fallbackTitle,
+          slug,
+          ...(fallbackDesc ? { description: fallbackDesc } : {}),
+          publishedAt: customDate || sourceFmData?.publishedAt || today,
+          draft: hasDraftArg ? !publishAll || hasPlaceholder : !isSource,
+        };
+        body = `\n${postStub(loc)}\n`;
+      }
+
+      const oldTitle = fmData.title || '';
+
+      // Title resolution
+      if (titlesByLocale[loc]) {
+        fmData.title = titlesByLocale[loc];
+      } else if (isSource && customTitle) {
+        fmData.title = customTitle;
+      } else if (customTitle && (isSyncFrontmatter || syncAll)) {
+        if (syncAll || !fmData.title || fmData.title.startsWith('[TODO:')) {
+          fmData.title = `[TODO: ${loc}] ${customTitle}`;
+        }
+      }
+
+      // Description resolution
+      if (descriptionsByLocale[loc]) {
+        fmData.description = descriptionsByLocale[loc];
+      } else if (isSource && hasCustomDesc) {
+        fmData.description = customDesc;
+      } else if (hasCustomDesc && (isSyncFrontmatter || syncAll)) {
+        if (syncAll || !fmData.description || fmData.description.startsWith('[TODO:')) {
+          fmData.description = `[TODO: ${loc}] ${customDesc}`;
+        }
+      }
+
+      // Date resolution
+      if (customDate) {
+        fmData.publishedAt = customDate;
+      } else if (isSyncFrontmatter && sourceFmData?.publishedAt && !isSource) {
+        fmData.publishedAt = sourceFmData.publishedAt;
+      }
+
+      // Taxonomy and featured image resolution (including source-locale sync)
+      if (noImage) {
+        delete fmData.image;
+      } else if (customImage) {
+        fmData.image = customImage;
+      } else if (isSyncFrontmatter && sourceFmData && !isSource) {
+        if (sourceFmData.image !== undefined) fmData.image = sourceFmData.image;
+        else delete fmData.image;
+      }
+
+      if (customCategories && customCategories.length > 0) {
+        fmData.categories = customCategories;
+      } else if (isSyncFrontmatter && sourceFmData && !isSource) {
+        if (Array.isArray(sourceFmData.categories) && sourceFmData.categories.length > 0) {
+          fmData.categories = [...sourceFmData.categories];
+        } else {
+          delete fmData.categories;
+        }
+      }
+
+      if (customTags && customTags.length > 0) {
+        fmData.tags = customTags;
+      } else if (isSyncFrontmatter && sourceFmData && !isSource) {
+        if (Array.isArray(sourceFmData.tags) && sourceFmData.tags.length > 0) {
+          fmData.tags = [...sourceFmData.tags];
+        } else {
+          delete fmData.tags;
+        }
+      }
+
+      // Draft resolution
+      if (hasDraftArg) {
+        const hasPlaceholder = [fmData.title, fmData.description].some(
+          (value) => typeof value === 'string' && value.includes('[TODO')
+        );
+        fmData.draft = !publishAll || hasPlaceholder;
+      }
+
+      // Slug resolution
+      if (slugsByLocale[loc]) {
+        fmData.slug = slugsByLocale[loc];
+      }
+
+      // Heading update in markdown body if requested
+      if (updateHeading && fmData.title && oldTitle && oldTitle !== fmData.title) {
+        const headingRegex = new RegExp(`^(\\s*#\\s*)${escapeRegex(oldTitle)}(\\s*)$`, 'm');
+        if (headingRegex.test(body)) {
+          body = body.replace(headingRegex, `$1${fmData.title}$2`);
+        }
+      }
+
+      const newContent = stringifyFrontmatter(fmData, body);
+      fs.writeFileSync(filePath, newContent, 'utf-8');
+      updatedLocales.push(loc);
+    }
+
+    console.log(`✅ Frontmatter successfully updated for [${groupSlug}] across locales: ${updatedLocales.join(', ')}`);
+    for (const line of placeholderSlugNotice(
+      'new:post',
+      groupSlug,
+      findPlaceholderSlugs(targetDir, groupSlug, LOCALES)
+    )) {
+      console.warn(line);
+    }
+    process.exit(0);
+  }
+
+  // -------------------------------------------------------------
+  // GUARD: Directory already exists without --update flag
+  // -------------------------------------------------------------
+  if (fs.existsSync(targetDir)) {
+    console.error(`❌ Article group already exists: ${targetDir}`);
+    console.error(`💡 Use --update or --sync-frontmatter to update existing post titles and descriptions.`);
+    process.exit(1);
+  }
+
+  // -------------------------------------------------------------
+  // NEW ARTICLE CREATION MODE
+  // -------------------------------------------------------------
+  const sourceTitle = customTitle || groupSlug.replace(/-/g, ' ');
+
+  // `--clone-from` is validated before anything is written: a missing source
+  // article must not leave an empty group folder behind that then blocks the
+  // corrected retry with "group already exists".
+  let clonedBody = '';
+  if (cloneFrom) {
+    const cloneDir = path.join(colDir, cloneFrom);
+    const cloneFile = ['.mdx', '.md']
+      .map((extension) => path.join(cloneDir, `${sourceLocale}${extension}`))
+      .find((candidate) => fs.existsSync(candidate));
+
+    if (!cloneFile) {
+      console.error(
+        `❌ No article group "${cloneFrom}" with a "${sourceLocale}" entry in ${path.relative(rootDir, colDir)}.`
+      );
+      process.exit(1);
+    }
+
+    clonedBody = fs
+      .readFileSync(cloneFile, 'utf-8')
+      .replace(/^---[\s\S]*?---/, '')
+      .trim();
+  }
+
+  // A custom cover is copied into the group folder, because the frontmatter
+  // reference is relative to the entry file. This runs before the group
+  // folder is created, so a missing artwork leaves nothing behind.
+  if (customImage) {
+    const placed = placeArtworkFor({
+      value: customImage,
+      rootDir,
+      groupDir: targetDir,
+      group: groupSlug,
+    });
+    if (!placed) {
+      console.warn(
+        `⚠️ Artwork "${customImage}" was not found next to the content (${path.relative(rootDir, targetDir)}) or in the project root.`
+      );
+      console.warn(`   The group artwork "./${groupSlug}.png" is used instead.`);
+      customImage = '';
+    } else {
+      customImage = placed;
+    }
+  }
+
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  // Every group owns its cover. The artwork is drawn from code by
+  // `assets:generate`, so the referenced file always exists once it is run.
+  // `--image=none` opts out, and the post falls back to the shared artwork.
+  const defaultGroupImage = ['blog', 'pages'].includes(collection)
+    ? `./${groupSlug}.png`
+    : '';
+  const groupImage = noImage ? '' : customImage || defaultGroupImage;
+
+  for (const loc of LOCALES) {
+    const isSource = loc === sourceLocale;
+    const slug = resolveSlug(loc, groupSlug, sourceLocale, defaultLocale, slugsByLocale);
+
+    let title;
+    if (titlesByLocale[loc]) {
+      title = titlesByLocale[loc];
+    } else {
+      title = isSource ? sourceTitle : `[TODO: ${loc}] ${sourceTitle}`;
+    }
+
+    // Without `--desc` the article has no description; the SEO component then
+    // falls back to the site description instead of publishing an invented
+    // "Description for …" meta tag.
+    let description;
+    if (descriptionsByLocale[loc]) {
+      description = descriptionsByLocale[loc];
+    } else if (hasCustomDesc) {
+      description = isSource ? customDesc : `[TODO: ${loc}] ${customDesc}`;
+    } else {
+      description = '';
+    }
+
+    const dateValue = customDate || today;
+    const hasPlaceholder = [title, description].some((value) => value.includes('[TODO'));
+    const isDraft = hasDraftArg ? !publishAll || hasPlaceholder : !isSource;
+    (isDraft ? draftLocales : publishedLocales).push(loc);
+
+    // Every entry starts with a body in its own language without duplicating the hero H1.
+    const bodyText = isSource && clonedBody
+      ? stripLeadingHeading(clonedBody).trimStart()
+      : postStub(loc);
+
+    const fmRecord = {
+      title,
+      slug,
+      ...(description ? { description } : {}),
+      ...(groupImage ? { image: groupImage } : {}),
+      ...(customCategories?.length ? { categories: customCategories } : {}),
+      ...(customTags?.length ? { tags: customTags } : {}),
+      publishedAt: dateValue,
+      draft: isDraft,
+    };
+
+    const content = stringifyFrontmatter(fmRecord, `\n${bodyText.trimEnd()}\n`);
+
+    fs.writeFileSync(path.join(targetDir, `${loc}.mdx`), content, 'utf-8');
+  }
+
+  for (const line of placeholderSlugNotice(
+    'new:post',
+    groupSlug,
+    findPlaceholderSlugs(targetDir, groupSlug, LOCALES)
+  )) {
+    console.warn(line);
+  }
+
+  console.log(`✅ Created synchronized article group in src/content/${collection}/${groupSlug}/ across locales: ${LOCALES.join(', ')}`);
+  console.log(`ℹ️ Source locale: "${sourceLocale}" (title: "${sourceTitle}")`);
+  console.log(
+    groupImage
+      ? `ℹ️ Hero background: "${groupImage}"`
+      : 'ℹ️ Hero background: shared artwork (--image=none)'
+  );
+
+  // Draw the artwork for the new group, so its cover is never broken.
+  try {
+    execFileSync(process.execPath, [path.join(rootDir, 'scripts', 'generate-assets.mjs')], {
+      cwd: rootDir,
+      stdio: 'inherit',
+    });
+  } catch (e) {
+    console.warn('⚠️ Warning: Failed to generate the cover artwork:', e.message);
+    if (groupImage) {
+      console.warn(`   Run "pnpm run assets:generate" to create "${groupImage}".`);
+    }
+  }
+
+  if (!publishAll) {
+    const draftedLocales = LOCALES.filter((l) => l !== sourceLocale);
+    console.log(`📝 Note: Non-source locales (${draftedLocales.join(', ')}) are marked as "draft: true" so they won't appear on blog index until translated.`);
+    console.log(`   (To publish every translated locale next time, pass --publish or --draft=false).`);
+  } else {
+    console.log(`🚀 Published locales: ${publishedLocales.join(', ') || 'none'}.`);
+    if (draftLocales.length) {
+      console.log(
+        `📝 Locales with placeholder copy stay drafts: ${draftLocales.join(', ')}. Provide --title:<locale> and --desc:<locale> to publish them.`
+      );
+    }
+  }
+}
+
+const currentFile = fileURLToPath(import.meta.url);
+const invokedFile = process.argv[1] ? path.resolve(process.argv[1]) : '';
+if (invokedFile === currentFile) {
+  runCli();
+}

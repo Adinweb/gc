@@ -1,0 +1,524 @@
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/vazirmatn';
+@import '@fontsource-variable/noto-sans-arabic';
+@import 'lenis/dist/lenis.css';
+@import 'tailwindcss';
+@source "../../client";
+@import './chronotrig.css';
+
+/*
+ * Theme tokens.
+ *
+ * One palette, two modes. Every role is a plain `--theme-*` custom property so
+ * a theme can be retuned by editing this file only; `@theme static inline`
+ * below emits every role as a `--color-*` variable and maps it to a Tailwind
+ * utility (`bg-secondary`, `text-success-fg`, …).
+ *
+ * The role names follow DaisyUI's semantic palette — primary, secondary,
+ * accent, neutral, info, success, warning, error, each with a foreground —
+ * but this project uses the `-fg` suffix where DaisyUI writes `-content`.
+ * Every `-fg` pair is chosen to clear WCAG AA (4.5:1) on its own role.
+ */
+:root {
+  color-scheme: light;
+
+  /* Base roles: page, card/panel, raised state, copy, and hairlines. */
+  --theme-bg: oklch(98% 0.005 240);
+  --theme-surface: oklch(100% 0 0);
+  --theme-surface-hover: oklch(95% 0.01 240);
+  --theme-fg: oklch(20% 0.015 240);
+  --theme-muted: oklch(52% 0.02 240);
+  --theme-border: oklch(88% 0.01 240);
+
+  /* Brand roles. `accent` is the decorative cyan; the rest are ready for
+     badges, callouts, charts and status surfaces. */
+  --theme-primary: oklch(50% 0.2 260);
+  --theme-primary-fg: oklch(98% 0 0);
+  --theme-secondary: oklch(53% 0.17 320);
+  --theme-secondary-fg: oklch(98% 0 0);
+  --theme-accent: oklch(65% 0.18 190);
+  --theme-accent-fg: oklch(18% 0.02 200);
+  --theme-neutral: oklch(32% 0.02 250);
+  --theme-neutral-fg: oklch(96% 0.005 240);
+
+  /* Status roles: informational, confirming, cautionary and destructive. */
+  --theme-info: oklch(52% 0.14 235);
+  --theme-info-fg: oklch(98% 0 0);
+  --theme-success: oklch(50% 0.14 150);
+  --theme-success-fg: oklch(98% 0 0);
+  --theme-warning: oklch(79% 0.15 80);
+  --theme-warning-fg: oklch(22% 0.02 70);
+  --theme-error: oklch(52% 0.2 25);
+  --theme-error-fg: oklch(98% 0 0);
+
+  /* The band behind the hero copy; deliberately mode-independent darkness. */
+  --theme-hero-base: oklch(18% 0.018 245);
+  --theme-hero-fg: oklch(99% 0 0);
+  --theme-scrim: oklch(0% 0 0 / 0.58);
+
+  /* Frosted-glass palette. Alpha lives in the token so every glass surface
+     shares the same translucency and the header stays consistent. */
+  --theme-glass: oklch(100% 0 0 / 0.72);
+  --theme-glass-hover: oklch(100% 0 0 / 0.92);
+  --theme-glass-border: oklch(100% 0 0 / 0.9);
+  --theme-glass-control: oklch(100% 0 0 / 0.5);
+  --theme-shadow-glass: 0 16px 40px -20px oklch(20% 0.015 240 / 0.45);
+  --theme-shadow-floating:
+    0 0 0 1px oklch(20% 0.02 250 / 0.08),
+    0 -6px 24px -6px oklch(20% 0.025 250 / 0.12),
+    0 24px 56px -12px oklch(20% 0.03 250 / 0.34),
+    0 10px 24px -6px oklch(50% 0.2 260 / 0.16);
+
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-display: var(--font-sans);
+  --font-fa: 'Vazirmatn Variable', 'Vazirmatn', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+  --font-ar: 'Noto Sans Arabic Variable', 'Noto Sans Arabic', 'Geeza Pro', 'Al Bayan', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --theme-bg: oklch(14.5% 0.015 250);
+  --theme-surface: oklch(19% 0.018 250);
+  --theme-surface-hover: oklch(24% 0.02 250);
+  --theme-fg: oklch(95% 0.008 240);
+  --theme-muted: oklch(72% 0.018 245);
+  --theme-border: oklch(29% 0.02 250);
+
+  /* Dark mode keeps the same hue per role and raises its lightness, so the
+     foreground flips to an ink tone instead of white. */
+  --theme-primary: oklch(68% 0.17 260);
+  --theme-primary-fg: oklch(14% 0.018 255);
+  --theme-secondary: oklch(74% 0.14 320);
+  --theme-secondary-fg: oklch(15% 0.02 320);
+  --theme-accent: oklch(74% 0.16 190);
+  --theme-accent-fg: oklch(14% 0.02 200);
+  --theme-neutral: oklch(38% 0.02 250);
+  --theme-neutral-fg: oklch(96% 0.005 240);
+
+  --theme-info: oklch(75% 0.12 235);
+  --theme-info-fg: oklch(15% 0.02 240);
+  --theme-success: oklch(75% 0.14 150);
+  --theme-success-fg: oklch(15% 0.02 150);
+  --theme-warning: oklch(83% 0.14 80);
+  --theme-warning-fg: oklch(25% 0.02 80);
+  --theme-error: oklch(71% 0.17 25);
+  --theme-error-fg: oklch(15% 0.02 25);
+
+  --theme-hero-base: oklch(13% 0.018 250);
+  --theme-hero-fg: oklch(99% 0 0);
+  --theme-scrim: oklch(0% 0 0 / 0.62);
+
+  --theme-glass: oklch(17% 0.02 250 / 0.76);
+  --theme-glass-hover: oklch(24% 0.022 250 / 0.92);
+  --theme-glass-border: oklch(100% 0 0 / 0.14);
+  --theme-glass-control: oklch(22% 0.02 250 / 0.62);
+  --theme-shadow-glass: 0 18px 44px -18px oklch(0% 0 0 / 0.72);
+  --theme-shadow-floating:
+    0 0 0 1px oklch(100% 0 0 / 0.16),
+    0 -8px 28px -6px oklch(0% 0 0 / 0.65),
+    0 28px 64px -12px oklch(0% 0 0 / 0.88),
+    0 10px 28px -6px oklch(68% 0.17 260 / 0.22);
+}
+
+@theme static inline {
+  --color-bg: var(--theme-bg);
+  --color-surface: var(--theme-surface);
+  --color-surface-hover: var(--theme-surface-hover);
+  --color-fg: var(--theme-fg);
+  --color-muted: var(--theme-muted);
+  --color-border: var(--theme-border);
+
+  --color-primary: var(--theme-primary);
+  --color-primary-fg: var(--theme-primary-fg);
+  --color-secondary: var(--theme-secondary);
+  --color-secondary-fg: var(--theme-secondary-fg);
+  --color-accent: var(--theme-accent);
+  --color-accent-fg: var(--theme-accent-fg);
+  --color-neutral: var(--theme-neutral);
+  --color-neutral-fg: var(--theme-neutral-fg);
+
+  --color-info: var(--theme-info);
+  --color-info-fg: var(--theme-info-fg);
+  --color-success: var(--theme-success);
+  --color-success-fg: var(--theme-success-fg);
+  --color-warning: var(--theme-warning);
+  --color-warning-fg: var(--theme-warning-fg);
+  --color-error: var(--theme-error);
+  --color-error-fg: var(--theme-error-fg);
+
+  --color-hero-base: var(--theme-hero-base);
+  --color-hero-fg: var(--theme-hero-fg);
+  --color-scrim: var(--theme-scrim);
+
+  --color-glass: var(--theme-glass);
+  --color-glass-hover: var(--theme-glass-hover);
+  --color-glass-border: var(--theme-glass-border);
+  --color-glass-control: var(--theme-glass-control);
+
+  --shadow-glass: var(--theme-shadow-glass);
+  --shadow-floating: var(--theme-shadow-floating);
+}
+
+html {
+  scroll-behavior: auto; /* Prevent conflict with Lenis */
+}
+
+body {
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+  overflow-x: clip;
+}
+
+/* Display font pairing applies to Latin headings/display elements while preserving
+   zero-specificity fallback so :lang(fa)/:lang(ar) script stacks always win. */
+:where(h1, h2, h3, h4, .font-display):where(:not(:lang(fa)):not(:lang(ar))) {
+  font-family: var(--font-display);
+}
+
+/*
+ * Script stacks per language.
+ *
+ * The locale's own stack is applied to `<html>` from `LOCALE_METADATA`, and
+ * these rules cover everything below it: a Latin passage inside a Persian
+ * article is marked with `lang="en"` and must keep the Latin typeface, and a
+ * Persian passage inside an English article must do the same in reverse.
+ */
+:lang(en),
+:lang(de),
+:lang(fr) {
+  font-family: var(--font-sans);
+}
+
+:lang(fa) {
+  font-family: var(--font-fa);
+}
+
+:lang(ar) {
+  font-family: var(--font-ar);
+}
+
+/*
+ * Cursive RTL script protection.
+ * Non-zero letter-spacing disconnects joined Persian and Arabic glyphs.
+ * Force zero tracking across `fa`/`ar` trees while preserving explicit
+ * Latin islands (`[dir='ltr']`, `:lang(en)`).
+ */
+:where(:lang(fa), :lang(ar)),
+:where(:lang(fa), :lang(ar)) :not([dir='ltr']):not(:lang(en)) {
+  letter-spacing: 0 !important;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Light/dark brand logo switching controlled via html[data-theme="dark"] for zero FOUC. */
+.brand-logo-dark {
+  display: none;
+}
+
+:root[data-theme='dark'] .brand-logo-light[data-has-dark='true'] {
+  display: none;
+}
+
+:root[data-theme='dark'] .brand-logo-dark {
+  display: block;
+}
+
+/*
+ * Glass design system.
+ *
+ * Every frosted surface in the project is defined here, once. Components only
+ * compose these classes, so the header, its icon buttons and the calls to
+ * action can never drift apart.
+ */
+@layer components {
+  /* Standard desktop content container (80rem / 1280px) with logical inline gutters. */
+  .layout-container {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  /* The frosted bar that carries the navigation. */
+  .glass-surface {
+    @apply rounded-2xl border border-glass-border bg-glass shadow-glass backdrop-blur-2xl backdrop-saturate-150;
+  }
+
+  /* A control sitting *inside* the glass bar: translucent, with a hairline
+     ring that keeps it readable over any artwork. */
+  .glass-control {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full border border-glass-border bg-glass-control text-muted backdrop-blur-md transition-colors hover:bg-glass-hover hover:text-fg;
+  }
+
+  /* A control sitting on an opaque panel: no fill, no ring until hover. */
+  .ghost-control {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full text-muted transition-colors hover:bg-surface-hover hover:text-fg;
+  }
+
+  /* Primary call to action. */
+  .cta {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary/90;
+  }
+
+  /* Secondary call to action: an outlined button on a solid surface. */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-full border border-border bg-surface px-5 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-surface-hover;
+  }
+
+  /* Frosted secondary call to action sitting over hero artwork scrims. */
+  .btn-hero-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-hero-fg/30 bg-hero-fg/10 px-6 text-sm font-semibold text-hero-fg backdrop-blur-md transition-colors hover:bg-hero-fg/20;
+  }
+
+  /* Pill-shaped chip used by blog filters, taxonomy tags, tabs and card tags. */
+  .chip {
+    @apply inline-flex items-center rounded-full border border-border bg-surface font-medium text-muted transition-colors hover:border-primary/50 hover:text-fg;
+  }
+
+  .chip[aria-selected='true'],
+  .chip[aria-current='true'],
+  .chip[aria-current='page'] {
+    @apply border-primary bg-primary text-primary-fg shadow-xs hover:border-primary hover:bg-primary/90 hover:text-primary-fg;
+  }
+
+  /* Translucent pill badge sitting over hero or card media scrims. */
+  .hero-badge {
+    /* Persian and Arabic letters join, so the Latin uppercase tracking is reset
+       in RTL the same way `.section-kicker` does it. */
+    @apply inline-flex items-center rounded-full border border-hero-fg/20 bg-scrim px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-hero-fg backdrop-blur-sm rtl:tracking-normal;
+  }
+
+  /* Editorial eyebrow label shared across section headers. */
+  .section-kicker {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-primary rtl:tracking-normal;
+  }
+}
+
+/*
+ * Theme toggle: both glyphs are rendered once and the active theme picks one.
+ * The control shows what it will do — a moon while the page is light, a sun
+ * while it is dark — and no script has to rewrite icon markup on every switch.
+ */
+.theme-icon-sun {
+  display: none;
+}
+
+:root[data-theme='dark'] .theme-icon-moon {
+  display: none;
+}
+
+:root[data-theme='dark'] .theme-icon-sun {
+  display: block;
+}
+
+/*
+ * Code-copy button: the idle and the confirmed glyph are both in the DOM and
+ * `data-copied` picks one, so the copied state is a CSS swap after the click.
+ */
+.code-copy-btn .code-copy-check {
+  display: none;
+}
+
+.code-copy-btn[data-copied='true'] .code-copy-copy {
+  display: none;
+}
+
+.code-copy-btn[data-copied='true'] .code-copy-check {
+  display: block;
+}
+
+/*
+ * Mobile & Tablet Drawer System.
+ * Pure GPU compositor transition: elements remain in the render tree off-screen,
+ * eliminating layout-thrashing and ensuring 100% reliable 60fps transitions.
+ */
+[data-mobile-menu] {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 50 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+[data-mobile-menu].is-open {
+  pointer-events: auto !important;
+}
+
+/* Backdrop */
+[data-mobile-backdrop] {
+  position: fixed !important;
+  inset: 0 !important;
+  background-color: var(--color-scrim) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  will-change: opacity;
+}
+
+[data-mobile-menu].is-open [data-mobile-backdrop] {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+/* Panel */
+[data-mobile-panel] {
+  position: fixed !important;
+  inset-block: 0 !important;
+  inset-inline-start: 0 !important;
+  height: 100% !important;
+  max-width: 85vw !important;
+  transform: translateX(-100%) !important;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  will-change: transform;
+  pointer-events: auto !important;
+}
+
+:where([dir='rtl']) [data-mobile-panel] {
+  transform: translateX(100%) !important;
+}
+
+[data-mobile-menu].is-open [data-mobile-panel],
+:where([dir='rtl']) [data-mobile-menu].is-open [data-mobile-panel] {
+  transform: translateX(0) !important;
+}
+
+/*
+ * Editorial print stylesheet.
+ *
+ * Strips fixed navigation chrome, interactive filter/search affordances and
+ * adjacent-article widgets so printed articles read cleanly on paper in both
+ * LTR and RTL scripts.
+ */
+/* Suppress cookie banner immediately when synchronous head script detects valid consent. */
+:root[data-consent-state='decided'] [data-cookie-banner] {
+  display: none !important;
+}
+
+@keyframes cookie-card-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.875rem, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+html:not([data-motion="reduced"]) [data-cookie-banner]:not([hidden]) {
+  animation: cookie-card-enter 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media print {
+  :root,
+  :root[data-theme='dark'] {
+    color-scheme: light;
+    --theme-bg: #ffffff;
+    --theme-surface: #ffffff;
+    --theme-surface-hover: #f5f5f5;
+    --theme-fg: #111111;
+    --theme-muted: #4b5563;
+    --theme-border: #d1d5db;
+    --theme-primary: #1d4ed8;
+    --theme-primary-fg: #ffffff;
+    --theme-secondary: #6d28d9;
+    --theme-secondary-fg: #ffffff;
+    --theme-accent: #0f766e;
+    --theme-accent-fg: #ffffff;
+    --theme-neutral: #1f2937;
+    --theme-neutral-fg: #ffffff;
+    --theme-info: #1d4ed8;
+    --theme-info-fg: #ffffff;
+    --theme-success: #15803d;
+    --theme-success-fg: #ffffff;
+    --theme-warning: #b45309;
+    --theme-warning-fg: #ffffff;
+    --theme-error: #b91c1c;
+    --theme-error-fg: #ffffff;
+    --theme-hero-fg: #111111;
+    --theme-scrim: transparent;
+  }
+
+  header,
+  footer nav,
+  #top-loading-bar,
+  [data-mobile-menu],
+  [data-search-modal],
+  [data-cookie-banner],
+  [data-cookie-modal],
+  [data-blog-filter],
+  [data-blog-pagination],
+  [data-blog-pager-wrap],
+  [data-blog-empty],
+  [data-toc],
+  [data-toc-mobile],
+  [data-post-nav],
+  [data-related-posts],
+  [data-booking-form],
+  [data-contact-form],
+  [data-newsletter-banner],
+  [data-page-header] nav,
+  .code-copy-btn {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  main {
+    padding-block-start: 0 !important;
+  }
+
+  /*
+   * The hero is a picture with white copy over it, and the scrims that keep
+   * that copy legible are background paints, which browsers may drop when
+   * printing. The band is therefore flattened into plain dark text on paper so
+   * the article title never prints as white on a pale photograph.
+   */
+  [data-page-hero] {
+    background: #ffffff !important;
+  }
+
+  [data-page-hero] [data-hero-background] {
+    display: none !important;
+  }
+
+  [data-page-hero] h1,
+  [data-page-hero] h2,
+  [data-page-hero] p,
+  [data-page-hero] a,
+  [data-page-hero] time,
+  [data-page-hero] span,
+  [data-page-hero] li {
+    color: #111111 !important;
+    text-shadow: none !important;
+  }
+
+  [data-page-hero] > div:last-child {
+    min-height: 0 !important;
+    padding-block: 0 2rem !important;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  pre,
+  blockquote,
+  figure,
+  table,
+  img {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

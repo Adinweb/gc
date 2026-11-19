@@ -1,0 +1,142 @@
+---
+/**
+ * Accessible native `<details>` FAQ accordion inspired by PrebuiltUI FAQ
+ * sections, with optional FAQPage JSON-LD and localized defaults.
+ * Uses CSS logical spacing and standard chevron-down icon rotation.
+ */
+import Icon from '@/components/Icon.astro';
+import PageSection from '@/components/PageSection.astro';
+import SectionHeader from '@/components/SectionHeader.astro';
+import type { Locale } from '@/i18n/locales';
+import { buildFaqSchema, type FaqItem } from '@/libs/content/faq';
+import { resolveComponentLocale, resolveOptionalHeader } from '@/libs/ui/locale';
+import * as m from '@/paraglide/messages';
+
+interface Props {
+  id?: string;
+  locale?: Locale | string;
+  eyebrow?: string | null;
+  heading?: string | null;
+  subheading?: string | null;
+  items?: readonly FaqItem[];
+  openFirst?: boolean;
+  emitSchema?: boolean;
+  contained?: boolean;
+  surface?: 'default' | 'surface' | 'subtle';
+  spacing?: 'sm' | 'md' | 'lg';
+}
+
+const {
+  id,
+  locale,
+  eyebrow,
+  heading,
+  subheading,
+  items,
+  openFirst = false,
+  emitSchema = false,
+  contained = false,
+  surface = 'default',
+  spacing = 'md',
+} = Astro.props;
+
+const activeLocale = resolveComponentLocale(locale, Astro.url.pathname);
+const usingDefaults = items === undefined;
+
+const resolvedEyebrow = resolveOptionalHeader(
+  eyebrow,
+  usingDefaults,
+  m.block_faq_eyebrow({}, { locale: activeLocale })
+);
+const resolvedHeading = resolveOptionalHeader(
+  heading,
+  usingDefaults,
+  m.block_faq_heading({}, { locale: activeLocale })
+);
+const resolvedSubheading = resolveOptionalHeader(
+  subheading,
+  usingDefaults,
+  m.block_faq_subheading({}, { locale: activeLocale })
+);
+
+const resolvedItems: readonly FaqItem[] = items ?? [
+  {
+    question: m.block_faq_1_q({}, { locale: activeLocale }),
+    answer: m.block_faq_1_a({}, { locale: activeLocale }),
+  },
+  {
+    question: m.block_faq_2_q({}, { locale: activeLocale }),
+    answer: m.block_faq_2_a({}, { locale: activeLocale }),
+  },
+  {
+    question: m.block_faq_3_q({}, { locale: activeLocale }),
+    answer: m.block_faq_3_a({}, { locale: activeLocale }),
+  },
+];
+
+const hasHeader = Boolean(resolvedEyebrow || resolvedHeading || resolvedSubheading);
+const cardBg = !contained && surface === 'surface' ? 'bg-bg' : 'bg-surface';
+const faqJsonLd =
+  emitSchema && resolvedItems.length > 0
+    ? JSON.stringify(buildFaqSchema(resolvedItems)).replace(/</g, '\\u003c')
+    : undefined;
+---
+
+<PageSection
+  id={id}
+  surface={contained ? 'default' : surface}
+  spacing={contained ? 'none' : spacing}
+  bleed={contained}
+  class={contained ? 'not-prose my-10' : undefined}
+>
+  <div class="grid gap-10 lg:grid-cols-12 lg:items-start">
+    {
+      hasHeader && (
+        <div class="lg:col-span-5">
+          <SectionHeader
+            eyebrow={resolvedEyebrow}
+            heading={resolvedHeading}
+            subheading={resolvedSubheading}
+          />
+        </div>
+      )
+    }
+
+    <div
+      class:list={[
+        'space-y-3',
+        hasHeader ? 'lg:col-span-7' : 'max-w-3xl lg:col-span-12',
+      ]}
+      data-trig-stagger
+      data-trig-stagger-mode="linear"
+      data-trig-stagger-delay="0.06"
+      data-trig-once="true"
+    >
+      {
+        resolvedItems.map((item, idx) => (
+          <details
+            open={openFirst && idx === 0}
+            class:list={[
+              'group rounded-2xl border border-border transition-colors open:border-primary/40',
+              cardBg,
+            ]}
+          >
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-start text-sm font-semibold text-fg transition-colors hover:text-primary sm:px-6 sm:text-base">
+              <span>{item.question}</span>
+              <Icon
+                name="chevron-down"
+                size={18}
+                class="shrink-0 text-muted transition-transform duration-200 group-open:rotate-180 group-open:text-primary"
+              />
+            </summary>
+            <div class="border-t border-border/70 px-5 py-4 text-sm leading-relaxed text-muted sm:px-6">
+              {item.answer}
+            </div>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+
+  {faqJsonLd && <script type="application/ld+json" set:html={faqJsonLd} is:inline />}
+</PageSection>

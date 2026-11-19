@@ -1,0 +1,115 @@
+---
+/**
+ * Generic starter homepage template (`template: "home"`) shared across all
+ * active locales (`src/content/pages/home/<locale>.mdx`).
+ *
+ * Uses `<HomeHero />`, `.prose-wide` MDX content, and `<CtaBanner />` with
+ * compile-time Paraglide messages and registry-driven content links.
+ */
+import { render, type CollectionEntry } from 'astro:content';
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import HomeHero from '@/components/HomeHero.astro';
+import PageSection from '@/components/PageSection.astro';
+import CtaBanner from '@/components/CtaBanner.astro';
+import type { Locale } from '@/i18n/locales';
+import { siteConfig } from '@/libs/config/app';
+import { getBlogIndexHref, getPageUrl } from '@/libs/content/service';
+import type { SocialCardContext } from '@/libs/content/social';
+import { getContentType, getContentTypeIndexHref } from '@/libs/content/types';
+import * as m from '@/paraglide/messages';
+
+interface Props {
+  entry: CollectionEntry<'pages'>;
+  locale: Locale;
+  alternates: Partial<Record<Locale, string>>;
+  url: string;
+  schema?: Record<string, unknown> | Record<string, unknown>[];
+  ogContext?: SocialCardContext;
+}
+
+const { entry, locale, alternates, url, schema, ogContext } = Astro.props;
+const { Content } = await render(entry);
+
+const blogHref = getContentType('blog').enabled ? getBlogIndexHref(locale) : null;
+const projectsHref = getContentType('projects').enabled
+  ? getContentTypeIndexHref('projects', locale)
+  : null;
+const featuresHref =
+  (await getPageUrl('features', locale)) ??
+  blogHref ??
+  getContentTypeIndexHref('pages', locale);
+const ctaHref =
+  (await getPageUrl(siteConfig.ui.ctaPage, locale)) ??
+  (await getPageUrl('pricing', locale)) ??
+  featuresHref;
+
+const highlights = [
+  {
+    key: 'rtl',
+    icon: 'globe',
+    title: m.home_highlight_1_title({}, { locale }),
+    description: m.home_highlight_1_desc({}, { locale }),
+  },
+  {
+    key: 'ssg',
+    icon: 'sparkles',
+    title: m.home_highlight_2_title({}, { locale }),
+    description: m.home_highlight_2_desc({}, { locale }),
+  },
+  {
+    key: 'cli',
+    icon: 'layers',
+    title: m.home_highlight_3_title({}, { locale }),
+    description: m.home_highlight_3_desc({}, { locale }),
+  },
+] as const;
+---
+
+<BaseLayout
+  title={entry.data.title}
+  description={entry.data.description}
+  image={entry.data.image}
+  ogContext={ogContext}
+  schema={schema}
+  locale={locale}
+  url={url}
+  alternates={alternates}
+  flushTop
+  canvas
+>
+  <HomeHero
+    locale={locale}
+    description={entry.data.description}
+    primaryHref={featuresHref}
+    secondaryHref={blogHref ?? undefined}
+    highlights={highlights}
+  />
+
+  <PageSection surface="default" spacing="lg">
+    <div class="prose prose-wide" data-trig>
+      <Content />
+    </div>
+  </PageSection>
+
+  <CtaBanner
+    id="get-started"
+    eyebrow={m.home_badge({}, { locale })}
+    title={m.home_cta_title({}, { locale })}
+    description={m.home_cta_desc({}, { locale })}
+    primaryCta={{
+      label: m.home_cta_primary({}, { locale }),
+      href: ctaHref,
+      icon: 'arrow-right',
+    }}
+    secondaryCta={
+      projectsHref
+        ? {
+            label: m.home_cta_secondary({}, { locale }),
+            href: projectsHref,
+          }
+        : undefined
+    }
+    surface="hero"
+    spacing="md"
+  />
+</BaseLayout>

@@ -1,0 +1,818 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import Breadcrumbs from '@/components/Breadcrumbs.astro';
+import PageHero from '@/components/PageHero.astro';
+import HeroCopy from '@/components/HeroCopy.astro';
+import PostCard from '@/components/PostCard.astro';
+import UiPagination from '@/components/UiPagination.astro';
+import Icon from '@/components/Icon.astro';
+import {
+  buildBreadcrumbSchema,
+  getBreadcrumbs,
+  getBlogIndexHref,
+  getBlogPageHref,
+  getBlogPostHref,
+  getHomeHref,
+} from '@/libs/content/service';
+import {
+  buildBlogFilterQuery,
+  collectTaxonomyKeys,
+  type BlogFilters,
+} from '@/libs/content/blog';
+import { getSortedLocaleEntries } from '@/libs/content/entries';
+import { paginate } from '@/libs/content/pagination';
+import { getCategoryLabel, getTagLabel } from '@/libs/content/taxonomy';
+import { buildOgRouteKey, type SocialCardContext } from '@/libs/content/social';
+import { absoluteUrl, siteConfig } from '@/libs/config/app';
+import { getLocaleMeta, type Locale } from '@/i18n/locales';
+import { formatNumber } from '@/i18n/format';
+import * as m from '@/paraglide/messages';
+
+interface Props {
+  locale: Locale;
+  alternates: Partial<Record<Locale, string>>;
+  switcherAlternates?: Partial<Record<Locale, string>>;
+  url: string;
+  /** 1-based number of the page this route serves. */
+  page: number;
+  /** How many pages the locale's blog index has. */
+  totalPages: number;
+  /** How many posts a page holds. */
+  perPage: number;
+}
+
+const { locale, alternates, switcherAlternates, url, page, totalPages, perPage } = Astro.props;
+
+const posts = getSortedLocaleEntries(await getCollection('blog'), locale);
+
+// The taxonomy chips are built from the whole collection, so every page of
+// the index offers the same filters.
+const taxonomy = posts.map((post) => post.data);
+const categories = collectTaxonomyKeys(taxonomy, 'categories');
+const tags = collectTaxonomyKeys(taxonomy, 'tags');
+const blogHref = getBlogIndexHref(locale);
+
+// Only the posts of the current page are rendered; the pager links to the
+// rest of the collection.
+const { items: pagePosts } = paginate(posts, page, perPage);
+
+const filterHref = (filters: BlogFilters) => `${blogHref}${buildBlogFilterQuery(filters)}`;
+const formattedPageCount = formatNumber(pagePosts.length, locale);
+const totalLabel = m.blog_filter_showing_page(
+  { visible: formattedPageCount, total: formattedPageCount },
+  { locale }
+);
+
+const pageHref = (target: number) => getBlogPageHref(target, locale);
+const previousHref = page > 1 ? pageHref(page - 1) : undefined;
+const nextHref = page < totalPages ? pageHref(page + 1) : undefined;
+
+const pageStatus = m.blog_pagination_status(
+  { page: formatNumber(page, locale), totalPages: formatNumber(totalPages, locale) },
+  { locale }
+);
+// Only the deeper pages need a distinct document title; page one keeps the
+// plain name of the blog.
+const pageTitle = page > 1 ? `${m.nav_blog({}, { locale })} — ${pageStatus}` : m.nav_blog({}, { locale });
+const indexDescription = m.blog_index_description({}, { locale });
+const breadcrumbs = getBreadcrumbs(url, locale, {
+  home: m.nav_home({}, { locale }),
+  homeHref: await getHomeHref(locale),
+  blog: m.nav_blog({}, { locale }),
+  current: page > 1 ? pageStatus : undefined,
+});
+const meta = getLocaleMeta(locale);
+const indexSchema = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: pageTitle,
+    description: indexDescription,
+    url: absoluteUrl(url),
+    inLanguage: meta.htmlLang,
+    isPartOf: {
+      '@type': 'WebSite',
+      name: siteConfig.name,
+      url: absoluteUrl(breadcrumbs[0].href),
+    },
+  },
+  buildBreadcrumbSchema(breadcrumbs, absoluteUrl),
+];
+const ogContext: SocialCardContext = {
+  routeKey: buildOgRouteKey('blog-index', { page, locale }),
+  title: pageTitle,
+  subtitle: indexDescription,
+  kicker: siteConfig.name,
+  locale,
+};
+---
+
+<BaseLayout
+  title={pageTitle}
+  description={indexDescription}
+  ogContext={ogContext}
+  schema={indexSchema}
+  locale={locale}
+  url={url}
+  alternates={alternates}
+  switcherAlternates={switcherAlternates}
+  prevUrl={previousHref}
+  nextUrl={nextHref}
+  hero
+>
+  <PageHero slot="hero">
+    <HeroCopy title={m.nav_blog({}, { locale })} description={m.blog_index_description({}, { locale })}>
+      <Breadcrumbs
+        slot="prelude"
+        items={breadcrumbs}
+        locale={locale}
+        separator="chevron"
+        showHomeIcon={true}
+        surface="hero"
+        size="xs"
+        truncateLast
+      />
+    </HeroCopy>
+  </PageHero>
+
+  <div class="space-y-8">
+    {
+      posts.length === 0 ? (
+        <p class="rounded-2xl border border-dashed border-border bg-surface p-10 text-center text-sm text-muted">
+          {m.blog_empty({}, { locale })}
+        </p>
+      ) : (
+        <div class="space-y-8">
+          <section
+            class="space-y-4 rounded-2xl border border-border bg-surface/70 p-4 sm:p-5"
+            data-blog-filter
+            hidden
+            data-locale={locale}
+            data-total-pages={String(totalPages)}
+            data-per-page={String(perPage)}
+            data-base-href={blogHref}
+            data-current-url={url}
+            data-show-reading-time={String(siteConfig.blog.showReadingTime)}
+            data-showing-template={m.blog_filter_showing_page(
+              { visible: '{visible}', total: '{total}' },
+              { locale }
+            )}
+            data-showing-all-template={m.blog_filter_showing_all(
+              { visible: '{visible}', total: '{total}' },
+              { locale }
+            )}
+            data-page-status-template={m.blog_pagination_status(
+              { page: '{page}', totalPages: '{totalPages}' },
+              { locale }
+            )}
+            data-page-label-template={m.blog_pagination_page(
+              { page: '{page}' },
+              { locale }
+            )}
+            data-prev-label={m.blog_pagination_previous({}, { locale })}
+            data-next-label={m.blog_pagination_next({}, { locale })}
+            data-pager-aria-label={m.blog_pagination_label({}, { locale })}
+          >
+            <nav class="flex flex-wrap items-center gap-2" aria-label={m.blog_filter_by_category({}, { locale })}>
+              <span class="me-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                {m.blog_categories({}, { locale })}
+              </span>
+              <a
+                href={blogHref}
+                data-filter-chip
+                data-filter-category=""
+                class="chip px-3 py-1.5 text-xs"
+              >
+                {m.blog_all_posts({}, { locale })}
+              </a>
+              {
+                categories.map((category) => (
+                  <a
+                    href={filterHref({ category, tags: [] })}
+                    data-filter-chip
+                    data-filter-category={category}
+                    class="chip px-3 py-1.5 text-xs"
+                  >
+                    {getCategoryLabel(category, locale)}
+                  </a>
+                ))
+              }
+            </nav>
+
+            <div class="h-px bg-border"></div>
+
+            <div class="flex flex-wrap items-center gap-2" role="group" aria-label={m.blog_filter_by_tag({}, { locale })}>
+              <span class="me-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                {m.blog_tags({}, { locale })}
+              </span>
+              {
+                tags.map((tag) => (
+                  <a
+                    href={filterHref({ category: null, tags: [tag] })}
+                    data-filter-chip
+                    data-filter-tag={tag}
+                    class="chip px-3 py-1.5 text-xs"
+                  >
+                    <span class="me-1 text-muted/70" aria-hidden="true" dir="ltr">#</span>
+                    {getTagLabel(tag, locale)}
+                  </a>
+                ))
+              }
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-muted">
+              <p role="status" aria-live="polite" data-blog-status>{totalLabel}</p>
+              <a
+                href={blogHref}
+                data-blog-clear
+                class="font-medium text-primary hover:underline"
+                hidden
+              >
+                {m.blog_filter_clear({}, { locale })}
+              </a>
+            </div>
+          </section>
+
+          <p
+            class="rounded-2xl border border-dashed border-border bg-surface p-10 text-center text-sm text-muted"
+            data-blog-empty
+            hidden
+          >
+            {m.blog_filter_empty({}, { locale })}
+          </p>
+
+          <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" data-blog-grid data-trig-stagger data-trig-stagger-delay="0.06" data-pagefind-ignore>
+            {
+              pagePosts.map((post, index) => (
+                <PostCard
+                  post={post}
+                  locale={locale}
+                  href={getBlogPostHref(post.data.slug, locale)}
+                  priority={index === 0}
+                />
+              ))
+            }
+          </div>
+
+          {
+            totalPages > 1 && (
+              <div class="mt-10 space-y-3" data-blog-pager-wrap>
+                <p class="text-center text-xs text-muted" data-blog-page-status>
+                  {pageStatus}
+                </p>
+                <UiPagination
+                  locale={locale}
+                  variant="rounded"
+                  currentPage={page}
+                  totalPages={totalPages}
+                  hrefBuilder={pageHref}
+                  interactive={false}
+                  pageLinkAttrs
+                  class="justify-center"
+                  data-blog-pagination
+                />
+              </div>
+            )
+          }
+        </div>
+      )
+    }
+  </div>
+
+  <!--
+    Icons for the pager and the empty state, which are rebuilt after a filter
+    change: the script clones these instead of carrying SVG paths of its own.
+  -->
+  <template data-icon-template="chevron-left">
+    <Icon name="chevron-left" size={16} />
+  </template>
+  <template data-icon-template="chevron-right">
+    <Icon name="chevron-right" size={16} />
+  </template>
+  <template data-icon-template="globe">
+    <Icon name="globe" size={44} />
+  </template>
+</BaseLayout>
+
+<style>
+  /* Card layout uses `flex`, so enforce the hidden state explicitly. */
+  [data-post-card][hidden] {
+    display: none !important;
+  }
+</style>
+
+<script>
+  import { formatNumber } from '@/i18n/format';
+  import { getLenis } from '@/scripts/lenis';
+  import { refreshChronoTrig } from '@/scripts/chronotrig';
+  import { buildPageWindow, PAGE_GAP, paginate } from '@/libs/content/pagination';
+  import { buttonClasses } from '@/libs/ui/button';
+  import {
+    NO_FILTERS,
+    areBlogFiltersEqual,
+    buildBlogFilterQuery,
+    hasActiveFilters,
+    matchesBlogFilters,
+    parseBlogFilterPage,
+    parseBlogFilters,
+    toggleBlogTag,
+    type BlogFilters,
+    type BlogTaxonomy,
+    type SerializedBlogPost,
+  } from '@/libs/content/blog';
+
+  const catalogCache = new Map<string, Promise<SerializedBlogPost[]>>();
+
+  function fetchBlogCatalog(locale: string): Promise<SerializedBlogPost[]> {
+    const existing = catalogCache.get(locale);
+    if (existing) return existing;
+
+    const request = (async () => {
+      const res = await fetch(`/api/blog-posts/${encodeURIComponent(locale)}.json`);
+      if (res.ok) {
+        return (await res.json()) as SerializedBlogPost[];
+      }
+      const fallbackRes = await fetch('/api/blog-posts.json');
+      if (!fallbackRes.ok) {
+        throw new Error(`Catalog HTTP ${fallbackRes.status}`);
+      }
+      const all = (await fallbackRes.json()) as SerializedBlogPost[];
+      return all.filter((post) => post.locale === locale);
+    })().catch((error) => {
+      catalogCache.delete(locale);
+      throw error;
+    });
+
+    catalogCache.set(locale, request);
+    return request;
+  }
+
+  /**
+   * Clones an icon the server already rendered into a `<template>`.
+   *
+   * The pager is built after a filter change, so its chevrons cannot come from
+   * the `Icon` component directly; cloning keeps one source of icon markup and
+   * keeps SVG paths out of this script.
+   */
+  function cloneIcon(name: string, size: number, extraClass = ''): SVGElement | null {
+    const template = document.querySelector<HTMLTemplateElement>(
+      `template[data-icon-template="${name}"]`
+    );
+    const node = template?.content.firstElementChild?.cloneNode(true) as SVGElement | null | undefined;
+    if (!node) return null;
+    node.setAttribute('width', String(size));
+    node.setAttribute('height', String(size));
+    if (extraClass) node.classList.add(...extraClass.split(' ').filter(Boolean));
+    return node;
+  }
+
+  function createDynamicPostCard(
+    post: SerializedBlogPost,
+    showReadingTime: boolean
+  ): HTMLElement {
+    const article = document.createElement('article');
+    article.className =
+      'group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/30';
+    article.dataset.dynamicPostCard = 'true';
+    article.setAttribute('data-trig', '');
+
+    const media = document.createElement('div');
+    media.className =
+      'relative aspect-[16/9] overflow-hidden bg-linear-to-br from-primary/20 via-surface-hover to-accent/15';
+
+    const createCoverPlaceholder = () => {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'flex h-full items-center justify-center text-primary/40';
+      const placeholderIcon = cloneIcon('globe', 44);
+      if (placeholderIcon) placeholder.append(placeholderIcon);
+      return placeholder;
+    };
+
+    if (post.coverSrc) {
+      const img = document.createElement('img');
+      img.src = post.coverSrc;
+      img.alt = '';
+      if (post.coverWidth) img.width = post.coverWidth;
+      if (post.coverHeight) img.height = post.coverHeight;
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.className =
+        'h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]';
+      img.addEventListener(
+        'error',
+        () => {
+          img.replaceWith(createCoverPlaceholder());
+        },
+        { once: true }
+      );
+      media.append(img);
+    } else {
+      media.append(createCoverPlaceholder());
+    }
+
+    if (post.categoryLabel) {
+      const badge = document.createElement('span');
+      badge.className = 'hero-badge absolute bottom-3 start-3';
+      badge.textContent = post.categoryLabel;
+      media.append(badge);
+    }
+
+    const content = document.createElement('div');
+    content.className = 'flex flex-1 flex-col gap-2.5 p-5';
+
+    const heading = document.createElement('h2');
+    heading.className = 'line-clamp-2 text-lg font-bold leading-snug tracking-tight text-fg';
+    const link = document.createElement('a');
+    link.href = post.href;
+    link.className =
+      'transition-colors after:absolute after:inset-0 hover:text-primary focus-visible:outline-none';
+    link.textContent = post.title;
+    heading.append(link);
+    content.append(heading);
+
+    if (post.description) {
+      const desc = document.createElement('p');
+      desc.className = 'line-clamp-2 text-sm leading-relaxed text-muted';
+      desc.textContent = post.description;
+      content.append(desc);
+    }
+
+    if (post.tagLabels.length > 0) {
+      const tagList = document.createElement('ul');
+      tagList.className = 'flex flex-wrap items-center gap-1.5 text-[11px] text-muted';
+      for (const label of post.tagLabels) {
+        const li = document.createElement('li');
+        li.className = 'chip px-2 py-0.5 text-[11px]';
+        li.textContent = label;
+        tagList.append(li);
+      }
+      if (post.hiddenTagCount > 0) {
+        const more = document.createElement('li');
+        more.className = 'chip px-2 py-0.5 text-[11px]';
+        more.textContent = `+${formatNumber(post.hiddenTagCount, post.locale)}`;
+        tagList.append(more);
+      }
+      content.append(tagList);
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-2 text-xs text-muted';
+    const time = document.createElement('time');
+    time.dateTime = post.publishedIso;
+    time.textContent = post.formattedDate;
+    footer.append(time);
+
+    if (showReadingTime) {
+      const dot = document.createElement('span');
+      dot.setAttribute('aria-hidden', 'true');
+      dot.textContent = '·';
+      const readTime = document.createElement('span');
+      readTime.textContent = post.readingTimeLabel;
+      footer.append(dot, readTime);
+    }
+
+    content.append(footer);
+    article.append(media, content);
+    return article;
+  }
+
+  function setupBlogFilters() {
+    const root = document.querySelector<HTMLElement>('[data-blog-filter]');
+    if (!root || root.dataset.bound === 'true') return;
+    root.dataset.bound = 'true';
+    root.hidden = false;
+
+    const abortController = new AbortController();
+    document.addEventListener(
+      'astro:before-swap',
+      () => abortController.abort(),
+      { once: true }
+    );
+
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-post-card]')].map((element) => ({
+      element,
+      taxonomy: {
+        categories: (element.dataset.categories ?? '').split(' ').filter(Boolean),
+        tags: (element.dataset.tags ?? '').split(' ').filter(Boolean),
+      } satisfies BlogTaxonomy,
+    }));
+
+    const grid = document.querySelector<HTMLElement>('[data-blog-grid]');
+    const pagerWrap = document.querySelector<HTMLElement>('[data-blog-pager-wrap]');
+    const serverPagerHtml = pagerWrap?.innerHTML ?? '';
+    let usingDynamicPager = false;
+
+    const status = root.querySelector<HTMLElement>('[data-blog-status]');
+    const empty = document.querySelector<HTMLElement>('[data-blog-empty]');
+    const clear = root.querySelector<HTMLAnchorElement>('[data-blog-clear]');
+    const categoryChips = [...root.querySelectorAll<HTMLAnchorElement>('[data-filter-category]')];
+    const tagChips = [...root.querySelectorAll<HTMLAnchorElement>('[data-filter-tag]')];
+    const pageTemplate = root.dataset.showingTemplate ?? '';
+    const allTemplate = root.dataset.showingAllTemplate ?? pageTemplate;
+    const pageStatusTemplate = root.dataset.pageStatusTemplate ?? '';
+    const pageLabelTemplate = root.dataset.pageLabelTemplate ?? '';
+    const prevLabel = root.dataset.prevLabel ?? 'Previous';
+    const nextLabel = root.dataset.nextLabel ?? 'Next';
+    const pagerAriaLabel = root.dataset.pagerAriaLabel ?? 'Pagination';
+    const baseHref = root.dataset.baseHref ?? window.location.pathname;
+    const currentUrl = root.dataset.currentUrl ?? window.location.pathname;
+    const locale = root.dataset.locale ?? 'en';
+    const totalPages = Number(root.dataset.totalPages ?? '1');
+    const perPage = Math.max(1, Number(root.dataset.perPage ?? '6'));
+    const showReadingTime = root.dataset.showReadingTime !== 'false';
+
+    let filters: BlogFilters = parseBlogFilters(window.location.search);
+    let filterPage = parseBlogFilterPage(window.location.search);
+    let renderToken = 0;
+
+    const setActive = (element: HTMLElement, active: boolean) => {
+      if (active) element.setAttribute('aria-current', 'true');
+      else element.removeAttribute('aria-current');
+    };
+
+    const clearDynamicCards = () => {
+      grid?.querySelectorAll('[data-dynamic-post-card]').forEach((el) => el.remove());
+    };
+
+    /**
+     * Restarts the ChronoTrig entrance for every card in the grid.
+     *
+     * Filtering only toggles `hidden` on existing cards, so without this they would
+     * keep their `.trig` class and pop in instantly while only freshly appended
+     * cards animated. Clearing the reveal classes re-arms the stagger cascade.
+     */
+    const replayGridReveals = () => {
+      // Never strip the reveal classes without an engine to re-trigger them,
+      // otherwise the cards would stay stuck at the hidden entrance state.
+      if (!grid || typeof window.chronoTrig === 'undefined') return;
+      grid.classList.remove('trig-stagger-active');
+      for (const child of Array.from(grid.children)) {
+        child.classList.remove('trig', 'trig-up', 'trig-down', 'trig-stagger-active');
+      }
+      // Flush the hidden entrance state before ChronoTrig re-observes the grid.
+      void grid.offsetHeight;
+    };
+
+    const restoreServerPager = () => {
+      if (!pagerWrap) return;
+      if (usingDynamicPager) {
+        pagerWrap.innerHTML = serverPagerHtml;
+        usingDynamicPager = false;
+      }
+      pagerWrap.hidden = totalPages <= 1;
+    };
+
+    const renderFilteredPager = (currentPage: number, filteredTotalPages: number) => {
+      if (!pagerWrap) return;
+      if (filteredTotalPages <= 1) {
+        pagerWrap.hidden = true;
+        return;
+      }
+
+      usingDynamicPager = true;
+      pagerWrap.hidden = false;
+      pagerWrap.replaceChildren();
+
+      const statusEl = document.createElement('p');
+      statusEl.className = 'text-center text-xs text-muted';
+      statusEl.dataset.blogPageStatus = '';
+      statusEl.textContent = pageStatusTemplate
+        .replace('{page}', formatNumber(currentPage, locale))
+        .replace('{totalPages}', formatNumber(filteredTotalPages, locale));
+
+      const nav = document.createElement('nav');
+      nav.className = 'flex flex-wrap items-center justify-center gap-1.5';
+      nav.setAttribute('aria-label', pagerAriaLabel);
+      nav.dataset.blogPagination = '';
+
+      const makePageHref = (targetPage: number) =>
+        `${baseHref}${buildBlogFilterQuery(filters, targetPage)}`;
+
+      if (currentPage > 1) {
+        const prev = document.createElement('a');
+        prev.href = makePageHref(currentPage - 1);
+        prev.dataset.dynamicPage = String(currentPage - 1);
+        prev.className = buttonClasses({ variant: 'secondary', size: 'sm' });
+        const prevIcon = cloneIcon('chevron-left', 16, 'shrink-0 rtl:rotate-180');
+        if (prevIcon) prev.append(prevIcon);
+        prev.append(document.createTextNode(prevLabel));
+        nav.append(prev);
+      }
+
+      for (const entry of buildPageWindow(currentPage, filteredTotalPages)) {
+        if (entry === PAGE_GAP) {
+          const gap = document.createElement('span');
+          gap.className = 'px-1 text-xs text-muted';
+          gap.setAttribute('aria-hidden', 'true');
+          gap.textContent = '…';
+          nav.append(gap);
+        } else {
+          const link = document.createElement('a');
+          link.href = makePageHref(entry);
+          link.dataset.dynamicPage = String(entry);
+          link.setAttribute(
+            'aria-label',
+            pageLabelTemplate.replace('{page}', formatNumber(entry, locale))
+          );
+          if (entry === currentPage) link.setAttribute('aria-current', 'page');
+          link.className = 'chip h-9 min-w-9 justify-center px-3 text-xs';
+          link.textContent = formatNumber(entry, locale);
+          nav.append(link);
+        }
+      }
+
+      if (currentPage < filteredTotalPages) {
+        const next = document.createElement('a');
+        next.href = makePageHref(currentPage + 1);
+        next.dataset.dynamicPage = String(currentPage + 1);
+        next.className = buttonClasses({ variant: 'secondary', size: 'sm' });
+        next.append(document.createTextNode(nextLabel));
+        const nextIcon = cloneIcon('chevron-right', 16, 'shrink-0 rtl:rotate-180');
+        if (nextIcon) next.append(nextIcon);
+        nav.append(next);
+      }
+
+      pagerWrap.append(statusEl, nav);
+    };
+
+    const render = async (
+      options: { updateUrl?: boolean; replay?: boolean } = {}
+    ) => {
+      const { updateUrl = true, replay = true } = options;
+      const token = ++renderToken;
+      const active = hasActiveFilters(filters);
+
+      for (const chip of categoryChips) {
+        const isAllChip = chip.dataset.filterCategory === '';
+        setActive(
+          chip,
+          isAllChip ? !active : chip.dataset.filterCategory === filters.category
+        );
+      }
+      for (const chip of tagChips) {
+        setActive(chip, filters.tags.includes(chip.dataset.filterTag ?? ''));
+      }
+
+      if (clear) clear.hidden = !active;
+
+      // Multi-page blog with active filters: search & paginate the full locale collection.
+      if (active && totalPages > 1 && grid) {
+        try {
+          const localePosts = await fetchBlogCatalog(locale);
+          if (token !== renderToken) return;
+
+          const matching = localePosts.filter((post) => matchesBlogFilters(post, filters));
+          const slice = paginate(matching, filterPage, perPage);
+          filterPage = slice.page;
+
+          if (updateUrl) {
+            window.history.replaceState(
+              window.history.state,
+              '',
+              `${baseHref}${buildBlogFilterQuery(filters, filterPage)}`
+            );
+          }
+
+          for (const card of cards) card.element.hidden = true;
+          clearDynamicCards();
+          grid.append(
+            ...slice.items.map((post) => createDynamicPostCard(post, showReadingTime))
+          );
+          renderFilteredPager(slice.page, slice.totalPages);
+          if (replay) replayGridReveals();
+          refreshChronoTrig();
+
+          if (status) {
+            status.textContent = allTemplate
+              .replace('{visible}', formatNumber(matching.length, locale))
+              .replace('{total}', formatNumber(localePosts.length, locale));
+          }
+          if (empty) empty.hidden = matching.length !== 0;
+          return;
+        } catch {
+          // Graceful fallback: filter the server-rendered cards on the current page.
+          if (token !== renderToken) return;
+        }
+      }
+
+      clearDynamicCards();
+      restoreServerPager();
+
+      const query = buildBlogFilterQuery(filters);
+      document.querySelectorAll<HTMLAnchorElement>('[data-page-link]').forEach((link) => {
+        const pageBase = link.dataset.pageHref;
+        if (pageBase) link.setAttribute('href', `${pageBase}${query}`);
+      });
+
+      if (updateUrl) {
+        // Preserve Astro's router state: replacing it with `null` breaks the
+        // ClientRouter's history handling when navigating back to this page.
+        const targetPath = active ? `${baseHref}${query}` : currentUrl;
+        window.history.replaceState(window.history.state, '', targetPath);
+      }
+
+      let visible = 0;
+      for (const card of cards) {
+        const matches = matchesBlogFilters(card.taxonomy, filters);
+        card.element.hidden = !matches;
+        if (matches) visible += 1;
+      }
+      if (replay) replayGridReveals();
+      refreshChronoTrig();
+
+      const statusTemplate = active ? allTemplate : pageTemplate;
+      if (status) {
+        status.textContent = statusTemplate
+          .replace('{visible}', formatNumber(visible, locale))
+          .replace('{total}', formatNumber(cards.length, locale));
+      }
+      if (empty) empty.hidden = visible !== 0;
+    };
+
+    root.addEventListener(
+      'click',
+      (event) => {
+        const target = (event.target as HTMLElement | null)?.closest<HTMLAnchorElement>(
+          '[data-filter-chip], [data-blog-clear]'
+        );
+        if (!target) return;
+
+        event.preventDefault();
+
+        let nextFilters = filters;
+        if (target.hasAttribute('data-blog-clear')) {
+          nextFilters = NO_FILTERS;
+        } else if (target.dataset.filterCategory !== undefined) {
+          const category = target.dataset.filterCategory || null;
+          nextFilters = category === null ? NO_FILTERS : { category, tags: filters.tags };
+        } else if (target.dataset.filterTag) {
+          nextFilters = toggleBlogTag(filters, target.dataset.filterTag);
+        }
+
+        const changed = !areBlogFiltersEqual(filters, nextFilters);
+        filters = nextFilters;
+        if (changed) filterPage = 1;
+        void render({ updateUrl: true });
+      },
+      { signal: abortController.signal }
+    );
+
+    pagerWrap?.addEventListener(
+      'click',
+      (event) => {
+        const target = (event.target as HTMLElement | null)?.closest<HTMLAnchorElement>(
+          '[data-dynamic-page]'
+        );
+        if (!target) return;
+
+        event.preventDefault();
+        const nextPage = Number(target.dataset.dynamicPage);
+        if (!Number.isInteger(nextPage) || nextPage < 1 || nextPage === filterPage) return;
+
+        filterPage = nextPage;
+        void render({ updateUrl: true });
+        if (grid) {
+          const headerOffset = document.querySelector('header.fixed') ? -96 : 0;
+          const lenis = getLenis();
+          if (lenis) {
+            lenis.scrollTo(grid, { offset: headerOffset, duration: 0.9 });
+          } else {
+            const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const top = grid.getBoundingClientRect().top + window.scrollY + headerOffset;
+            window.scrollTo({
+              top: Math.max(0, top),
+              behavior: reducedMotion ? 'auto' : 'smooth',
+            });
+          }
+        }
+      },
+      { signal: abortController.signal }
+    );
+
+    document.addEventListener(
+      'blog:filters-restore',
+      () => {
+        filters = parseBlogFilters(window.location.search);
+        filterPage = parseBlogFilterPage(window.location.search);
+        void render({ updateUrl: false });
+      },
+      { signal: abortController.signal }
+    );
+
+    // Initial paint must not replay: the cards are already animating in from the
+    // page entrance, and resetting them here would restart that animation.
+    void render({ updateUrl: false, replay: false });
+  }
+
+  if (document.documentElement.dataset.blogFilterHistoryBound !== 'true') {
+    document.documentElement.dataset.blogFilterHistoryBound = 'true';
+    window.addEventListener('popstate', () => {
+      document.dispatchEvent(new CustomEvent('blog:filters-restore'));
+    });
+  }
+
+  setupBlogFilters();
+  document.addEventListener('astro:page-load', setupBlogFilters);
+</script>

@@ -1,0 +1,1307 @@
+---
+import { ClientRouter } from 'astro:transitions';
+import type { ImageMetadata } from 'astro';
+import { getLocaleMeta, LOCALES, LOCALE_METADATA, type Locale } from '@/i18n/locales';
+import { formatYear } from '@/i18n/format';
+import { getHomeHref, getPageUrl } from '@/libs/content/service';
+import { getNavigationSlots } from '@/libs/config/navigation';
+import { absoluteUrl, BUSINESS_CONFIG, siteConfig, SOCIAL_CONFIG } from '@/libs/config/app';
+import { buildBrandThemeCss } from '@/libs/config/theme';
+import { buildOrganizationSchema } from '@/libs/content/schema';
+import type { SocialCardContext } from '@/libs/content/social';
+import * as m from '@/paraglide/messages';
+import Seo from '@/components/Seo.astro';
+import TopLoadingBar from '@/components/TopLoadingBar.astro';
+import LanguageSwitcher from '@/components/LanguageSwitcher.astro';
+import ThemeToggle from '@/components/ThemeToggle.astro';
+import SearchModal from '@/components/SearchModal.astro';
+import CookieConsent from '@/components/CookieConsent.astro';
+import IconButton from '@/components/IconButton.astro';
+import Button from '@/components/Button.astro';
+import Icon from '@/components/Icon.astro';
+import DrawerNavLink from '@/components/DrawerNavLink.astro';
+import DrawerSearch from '@/components/DrawerSearch.astro';
+import DevThemePreview from '@/components/DevThemePreview.astro';
+import LayoutHooks from '@client/LayoutHooks.astro';
+import '@/styles/global.css';
+import '@/styles/prose.css';
+import '@client/styles.css';
+
+interface Props {
+  title: string;
+  description?: string;
+  locale: Locale;
+  url: string;
+  /**
+   * URL that decides which navigation entry renders as current. Defaults to
+   * `url`; the 404 document publishes the home page as its canonical but is
+   * not itself a page of the site, so it passes `null` and highlights nothing.
+   */
+  activeUrl?: string | null;
+  alternates: Partial<Record<Locale, string>>;
+  switcherAlternates?: Partial<Record<Locale, string>>;
+  noindex?: boolean;
+  noPagefind?: boolean;
+  showSearch?: boolean;
+  /**
+   * Renders the page flush to the top so the fixed header floats over its hero.
+   * The `hero` named slot is rendered full-bleed, outside the content column.
+   */
+  hero?: boolean;
+  /**
+   * Removes top header clearance without rendering the `hero` slot so custom
+   * full-bleed page sections can sit directly beneath the floating header.
+   */
+  flushTop?: boolean;
+  /**
+   * Renders `<slot />` directly inside `<main>` without a `.layout-container`
+   * wrapper so custom pages can compose arbitrary full-bleed bands.
+   */
+  canvas?: boolean;
+  /** Artwork of the entry, already resolved by Astro's image pipeline. */
+  image?: ImageMetadata;
+  /** Route context used for branded OpenGraph card generation. */
+  ogContext?: SocialCardContext;
+  type?: 'website' | 'article';
+  publishedTime?: string;
+  modifiedTime?: string;
+  schema?: Record<string, unknown> | Record<string, unknown>[];
+  /** URL of the previous page of a paginated listing. */
+  prevUrl?: string;
+  /** URL of the next page of a paginated listing. */
+  nextUrl?: string;
+}
+
+const {
+  title,
+  description,
+  locale,
+  url,
+  activeUrl,
+  alternates,
+  switcherAlternates,
+  noindex = false,
+  noPagefind = false,
+  showSearch = true,
+  hero = false,
+  flushTop = false,
+  canvas = false,
+  image,
+  ogContext,
+  type = 'website',
+  publishedTime,
+  modifiedTime,
+  schema,
+  prevUrl,
+  nextUrl,
+} = Astro.props;
+
+const meta = getLocaleMeta(locale);
+const siteName = siteConfig.name;
+const brandThemeCss = buildBrandThemeCss(siteConfig);
+const showLanguageSwitcher = siteConfig.ui.showLanguageSwitcher && LOCALES.length > 1;
+const { header: headerNav, drawer: drawerNav, footer: footerNav, legal: legalNav } =
+  await getNavigationSlots(locale, activeUrl === undefined ? url : (activeUrl ?? ''));
+const homeHref = await getHomeHref(locale);
+// The call to action points at the content group configured in `ui.ctaPage`
+// instead of a hardcoded page: a site without a pricing page keeps its CTA,
+// and pointing it at e.g. `contact` is one line of configuration.
+const ctaHref = await getPageUrl(siteConfig.ui.ctaPage, locale);
+const privacyHref = legalNav.find((item) => item.key === 'privacy')?.href;
+const termsHref = legalNav.find((item) => item.key === 'terms')?.href;
+const currentYear = new Date().getFullYear();
+const effectiveShowSearch = showSearch && siteConfig.ui.showSearch;
+const effectiveShowCookies = siteConfig.cookies.enabled;
+
+const brandLogo = siteConfig.logo;
+const hasLightLogo = Boolean(brandLogo?.light?.trim());
+const hasDarkLogo = Boolean(brandLogo?.dark?.trim());
+const hasAnyLogo = hasLightLogo || hasDarkLogo;
+const logoAlt = brandLogo?.alt?.trim() || siteName;
+const showBrandText = !hasAnyLogo || brandLogo?.showText !== false;
+const logoAbsoluteUrl = brandLogo?.light?.trim()
+  ? absoluteUrl(brandLogo.light.trim())
+  : absoluteUrl(`/${siteConfig.icons[0]?.file ?? 'icon-512.png'}`);
+
+const structuredData = schema ?? [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: siteName,
+    url: absoluteUrl(homeHref),
+    description: m.site_description({}, { locale }),
+    inLanguage: meta.htmlLang,
+  },
+  buildOrganizationSchema({
+    name: siteName,
+    url: absoluteUrl(homeHref),
+    description: m.site_description({}, { locale }),
+    email: siteConfig.contactEmail || undefined,
+    logoUrl: logoAbsoluteUrl,
+    inLanguage: meta.htmlLang,
+    business: BUSINESS_CONFIG,
+    social: SOCIAL_CONFIG,
+  }),
+];
+---
+
+<!doctype html>
+<html
+  lang={meta.htmlLang}
+  dir={meta.dir}
+  data-default-theme={siteConfig.defaultTheme}
+  data-consent-key={siteConfig.cookies.storageKey}
+  data-consent-version={String(siteConfig.cookies.consentVersion)}
+  class="scroll-pt-24"
+  style={`font-family: ${meta.fontFamily};`}
+>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="theme-color"
+      content={siteConfig.themeColor}
+      data-light-color={siteConfig.themeColor}
+      data-dark-color={siteConfig.darkThemeColor}
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="generator" content={Astro.generator} />
+    <script is:inline>
+      (function () {
+        document.documentElement.classList.add('js');
+        if (typeof document !== 'undefined') {
+          document.addEventListener('astro:after-swap', function () {
+            document.documentElement.classList.add('js');
+          });
+        }
+        if (typeof window !== 'undefined' && 'onscrollend' in window) {
+          try {
+            delete window.onscrollend;
+          } catch (_) {}
+        }
+        function resolveTheme() {
+          try {
+            var stored = window.localStorage.getItem('theme');
+            if (stored === 'dark' || stored === 'light') return stored;
+          } catch (_) {}
+          var fallback = document.documentElement.dataset.defaultTheme || 'system';
+          if (fallback === 'dark' || fallback === 'light') return fallback;
+          return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        function resolveConsentState() {
+          var key = document.documentElement.dataset.consentKey || 'cookie_consent';
+          var expectedVer = Number(document.documentElement.dataset.consentVersion || '1');
+          function isValidRaw(raw) {
+            if (!raw) return false;
+            try {
+              var parsed = JSON.parse(raw);
+              return Boolean(
+                parsed &&
+                  parsed.version === expectedVer &&
+                  parsed.categories &&
+                  parsed.categories.necessary === true &&
+                  parsed.expiresAt &&
+                  Date.parse(parsed.expiresAt) > Date.now()
+              );
+            } catch (_) {
+              return false;
+            }
+          }
+          try {
+            if (isValidRaw(window.localStorage.getItem(key))) return 'decided';
+          } catch (_) {}
+          try {
+            var pairs = (document.cookie || '').split(';');
+            for (var i = 0; i < pairs.length; i++) {
+              var eq = pairs[i].indexOf('=');
+              if (eq > 0 && pairs[i].slice(0, eq).trim() === key) {
+                var val = decodeURIComponent(pairs[i].slice(eq + 1).trim());
+                if (isValidRaw(val)) return 'decided';
+              }
+            }
+          } catch (_) {}
+          return 'undecided';
+        }
+        function resolveMotion() {
+          try {
+            var stored = window.localStorage.getItem('motion');
+            if (stored === 'reduced' || stored === 'full') return stored;
+          } catch (_) {}
+          return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduced' : 'full';
+        }
+        function applyToDocument(doc, theme, consentState, motion) {
+          doc.documentElement.classList.add('js');
+          doc.documentElement.dataset.theme = theme;
+          doc.documentElement.dataset.consentState = consentState;
+          doc.documentElement.dataset.motion = motion;
+          var meta = doc.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            var next = theme === 'dark' ? meta.dataset.darkColor : meta.dataset.lightColor;
+            if (next) meta.setAttribute('content', next);
+          }
+        }
+        applyToDocument(document, resolveTheme(), resolveConsentState(), resolveMotion());
+        if (document.documentElement.dataset.themeSwapBound !== 'true') {
+          document.documentElement.dataset.themeSwapBound = 'true';
+          document.addEventListener('astro:before-swap', function (event) {
+            var current = document.documentElement.dataset.theme || resolveTheme();
+            var currentConsent =
+              document.documentElement.dataset.consentState || resolveConsentState();
+            var currentMotion = resolveMotion();
+            applyToDocument(event.newDocument, current, currentConsent, currentMotion);
+          });
+        }
+      })();
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="apple-touch-icon" href={`/${siteConfig.appleTouchIcon}`} />
+    <ClientRouter />
+    <script is:inline src="/chronotrig.min.js"></script>
+    {brandThemeCss && <style is:inline set:html={brandThemeCss} />}
+    <Seo
+      title={title}
+      description={description}
+      locale={locale}
+      url={url}
+      alternates={alternates}
+      siteName={siteName}
+      image={image}
+      ogContext={ogContext}
+      type={type}
+      publishedTime={publishedTime}
+      modifiedTime={modifiedTime}
+      schema={structuredData}
+      noindex={noindex}
+      prevUrl={prevUrl}
+      nextUrl={nextUrl}
+    />
+    <LayoutHooks slot="head" locale={locale} url={url} />
+  </head>
+  <body
+    data-copy-label={m.common_copy_code({}, { locale })}
+    data-copied-label={m.common_copied({}, { locale })}
+    class="bg-bg text-fg min-h-screen flex flex-col antialiased selection:bg-primary/20"
+  >
+    <a
+      href="#main-content"
+      class="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-fg"
+    >
+      {m.common_skip_to_content({}, { locale })}
+    </a>
+
+    {siteConfig.ui.showTopLoadingBar && <TopLoadingBar />}
+
+    <header
+      class:list={[
+        'inset-x-0 top-0 z-40 pt-3 sm:pt-4',
+        siteConfig.ui.stickyHeader ? 'fixed' : 'relative',
+      ]}
+    >
+      <div class="layout-container">
+        <div
+          class="glass-surface flex h-14 items-center justify-between gap-3 px-3 sm:h-16 sm:px-4"
+        >
+          <a
+            href={homeHref}
+            data-brand-link
+            class="flex min-w-0 items-center gap-2 font-bold text-base tracking-tight transition-colors hover:text-primary sm:text-lg"
+          >
+            {
+              hasLightLogo && brandLogo && (
+                <img
+                  src={brandLogo.light}
+                  alt={showBrandText ? '' : logoAlt}
+                  width={brandLogo.width}
+                  height={brandLogo.height}
+                  class="brand-logo-light h-7 w-auto shrink-0 object-contain sm:h-8"
+                  data-has-dark={hasDarkLogo ? 'true' : undefined}
+                  decoding="async"
+                />
+              )
+            }
+            {
+              hasDarkLogo && brandLogo && (
+                <img
+                  src={brandLogo.dark}
+                  alt={showBrandText ? '' : logoAlt}
+                  width={brandLogo.width}
+                  height={brandLogo.height}
+                  class="brand-logo-dark h-7 w-auto shrink-0 object-contain sm:h-8"
+                  decoding="async"
+                />
+              )
+            }
+            {showBrandText && <span class="truncate">{siteName}</span>}
+            <LayoutHooks slot="brand-badge" locale={locale} url={url} />
+          </a>
+
+          <nav
+            class="hidden items-center gap-4 text-sm font-medium lg:flex xl:gap-6"
+            aria-label={m.common_menu({}, { locale })}
+          >
+            {
+              headerNav.map((item) => {
+                if (item.children && item.children.length > 0) {
+                  return (
+                    <div class="relative group" data-dropdown-item>
+                      <button
+                        type="button"
+                        class:list={[
+                          'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap transition-colors hover:text-primary py-1 cursor-pointer focus-visible:outline-none',
+                          item.active && 'text-primary font-medium',
+                        ]}
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        data-dropdown-trigger
+                      >
+                        <span data-dropdown-label={item.key}>{item.label}</span>
+                        <Icon
+                          name="chevron-down"
+                          size={13}
+                          class="ms-1 shrink-0 transition-transform duration-200 group-hover:rotate-180 group-focus-within:rotate-180"
+                        />
+                      </button>
+
+                      <div
+                        data-dropdown-menu
+                        class="absolute start-0 top-full pt-1.5 z-50 hidden min-w-48 group-hover:block group-focus-within:block focus-within:block [&[data-force-closed=true]]:!hidden"
+                      >
+                        <div
+                          class="rounded-xl border border-border bg-surface p-1.5 shadow-xl"
+                          role="menu"
+                        >
+                          {item.children.map((child) => {
+                            if (child.children && child.children.length > 0) {
+                              return (
+                                <div class="relative group/sub" data-subdropdown-item>
+                                  <button
+                                    type="button"
+                                    class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm text-fg transition-colors hover:bg-surface-hover hover:text-primary cursor-pointer text-start"
+                                    aria-haspopup="true"
+                                    aria-expanded="false"
+                                    data-subdropdown-trigger
+                                  >
+                                    <span data-dropdown-label={child.key}>{child.label}</span>
+                                    <Icon name="chevron-right" size={13} class="rtl:rotate-180 opacity-70" />
+                                  </button>
+                                  <div
+                                    data-subdropdown-menu
+                                    class="absolute start-full top-0 ps-1.5 z-50 hidden min-w-44 group-hover/sub:block group-focus-within/sub:block focus-within:block [&[data-force-closed=true]]:!hidden"
+                                  >
+                                    <div
+                                      class="rounded-xl border border-border bg-surface p-1.5 shadow-xl"
+                                      role="menu"
+                                    >
+                                      {child.children.map((subChild) => (
+                                        <a
+                                          href={subChild.href}
+                                          data-nav-link={subChild.key}
+                                          role="menuitem"
+                                          class:list={[
+                                            'block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-surface-hover hover:text-primary',
+                                            subChild.active ? 'bg-primary/10 font-medium text-primary' : 'text-fg',
+                                          ]}
+                                        >
+                                          {subChild.label}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return (
+                              <a
+                                href={child.href}
+                                data-nav-link={child.key}
+                                role="menuitem"
+                                class:list={[
+                                  'block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-surface-hover hover:text-primary',
+                                  child.active ? 'bg-primary/10 font-medium text-primary' : 'text-fg',
+                                ]}
+                              >
+                                {child.label}
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <a
+                    href={item.href}
+                    data-nav-link={item.key}
+                    aria-current={item.active ? 'page' : undefined}
+                    class:list={[
+                      'shrink-0 whitespace-nowrap transition-colors hover:text-primary',
+                      item.active && 'text-primary font-medium',
+                    ]}
+                  >
+                    {item.label}
+                  </a>
+                );
+              })
+            }
+          </nav>
+
+          <div class="flex items-center gap-2">
+            {
+              effectiveShowSearch && (
+                <>
+                  <IconButton
+                    icon="search"
+                    size={16}
+                    label={m.common_search_placeholder({}, { locale })}
+                    data-open-search
+                    aria-haspopup="dialog"
+                    class="hidden lg:inline-flex"
+                  />
+                  <IconButton
+                    icon="search"
+                    size={16}
+                    label={m.common_search_placeholder({}, { locale })}
+                    data-mobile-search-btn
+                    aria-haspopup="dialog"
+                    class="lg:hidden"
+                  />
+                </>
+              )
+            }
+
+            <div class="hidden lg:flex items-center gap-2">
+              {siteConfig.ui.showThemeToggle && <ThemeToggle locale={locale} />}
+
+              {
+                showLanguageSwitcher && (
+                  <LanguageSwitcher
+                    currentLocale={locale}
+                    alternates={switcherAlternates ?? alternates}
+                  />
+                )
+              }
+
+              {
+                ctaHref && (
+                  <Button
+                    href={ctaHref}
+                    size="sm"
+                    data-cta-link="get-started"
+                  >
+                    {m.common_get_started({}, { locale })}
+                  </Button>
+                )
+              }
+            </div>
+
+            <LayoutHooks slot="header-actions" locale={locale} url={url} />
+
+            <IconButton
+              icon="menu"
+              size={18}
+              label={m.common_menu({}, { locale })}
+              class="lg:hidden"
+              data-mobile-menu-btn
+              aria-expanded="false"
+              aria-controls="mobile-nav-menu"
+            />
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Mobile Drawer Overlay -->
+    <div
+      id="mobile-nav-menu"
+      data-mobile-menu
+      class="fixed inset-0 z-50 overflow-hidden pointer-events-none lg:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label={m.common_menu({}, { locale })}
+    >
+      <!-- Backdrop with blur -->
+      <div
+        data-mobile-backdrop
+        class="fixed inset-0 bg-scrim backdrop-blur-xs"
+        aria-hidden="true"
+      ></div>
+
+      <!-- Drawer Panel with independent scrolling -->
+      <aside
+        data-mobile-panel
+        data-lenis-prevent
+        inert
+        class="fixed inset-y-0 start-0 flex h-full w-84 max-w-[85vw] flex-col bg-surface text-fg shadow-2xl pointer-events-auto sm:w-96"
+      >
+        <!-- Drawer Header -->
+        <div class="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border px-4 bg-surface">
+          <a
+            href={homeHref}
+            data-brand-link
+            class="flex min-w-0 items-center gap-2 font-bold text-lg tracking-tight hover:text-primary transition-colors"
+          >
+            {
+              hasLightLogo && brandLogo && (
+                <img
+                  src={brandLogo.light}
+                  alt={showBrandText ? '' : logoAlt}
+                  width={brandLogo.width}
+                  height={brandLogo.height}
+                  class="brand-logo-light h-7 w-auto shrink-0 object-contain"
+                  data-has-dark={hasDarkLogo ? 'true' : undefined}
+                  decoding="async"
+                />
+              )
+            }
+            {
+              hasDarkLogo && brandLogo && (
+                <img
+                  src={brandLogo.dark}
+                  alt={showBrandText ? '' : logoAlt}
+                  width={brandLogo.width}
+                  height={brandLogo.height}
+                  class="brand-logo-dark h-7 w-auto shrink-0 object-contain"
+                  decoding="async"
+                />
+              )
+            }
+            {showBrandText && <span class="truncate">{siteName}</span>}
+          </a>
+          <IconButton
+            icon="close"
+            size={18}
+            variant="ghost"
+            label={m.common_close({}, { locale })}
+            data-close-menu
+          />
+        </div>
+
+        <!-- Two Tabs: Navigation & Search (only rendered when search is enabled) -->
+        {
+          effectiveShowSearch && (
+            <div class="flex border-b border-border bg-surface shrink-0" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                id="drawer-tab-btn-nav"
+                data-drawer-tab="nav"
+                aria-selected="true"
+                aria-controls="drawer-panel-nav"
+                class="flex flex-1 items-center justify-center gap-2 border-b-2 border-primary py-3 text-sm font-semibold text-primary transition-colors cursor-pointer"
+              >
+                <Icon name="menu" size={15} />
+                <span data-drawer-tab-label="nav">{m.drawer_tab_nav({}, { locale })}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="drawer-tab-btn-search"
+                data-drawer-tab="search"
+                aria-selected="false"
+                aria-controls="drawer-panel-search"
+                class="flex flex-1 items-center justify-center gap-2 border-b-2 border-transparent py-3 text-sm font-medium text-muted hover:text-fg transition-colors cursor-pointer"
+              >
+                <Icon name="search" size={15} />
+                <span data-drawer-tab-label="search">{m.drawer_tab_search({}, { locale })}</span>
+              </button>
+            </div>
+          )
+        }
+
+        <!-- Scrollable Content with its own scroll capability -->
+        <div class="flex-1 overflow-hidden flex flex-col min-h-0 bg-surface">
+          <!-- Panel 1: Navigation with inline nested list, dedicated language section, and controls -->
+          <div
+            id="drawer-panel-nav"
+            role={effectiveShowSearch ? 'tabpanel' : undefined}
+            aria-labelledby={effectiveShowSearch ? 'drawer-tab-btn-nav' : undefined}
+            data-drawer-panel="nav"
+            class="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-6 text-sm"
+          >
+            <!--
+              Navigation Links: one continuous tree.
+
+              A branch is a normal row of the same family as a link (icon tile +
+              label), and its children hang below it on a guide rule that runs
+              from the parent tile's centre. No separate card, border or heading,
+              so the submenu does not read as an unrelated block inside the menu.
+            -->
+            <nav class="space-y-1 font-medium" aria-label={m.common_menu({}, { locale })}>
+              {
+                drawerNav.map((item) => {
+                  if (item.children && item.children.length > 0) {
+                    return (
+                      <div class="space-y-0.5">
+                        {/* The branch row names the list below it; it is not a control. */}
+                        <p class="flex items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold text-fg">
+                          <span class="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-bg/60 text-fg/70">
+                            <Icon name={item.icon ?? 'layers'} size={17} />
+                          </span>
+                          <span data-dropdown-label={item.key} class="min-w-0 flex-1 truncate">
+                            {item.label}
+                          </span>
+                        </p>
+
+                        {/* `ms-6.5` puts the guide under the 36px tile's centre. */}
+                        <ul class="ms-6.5 space-y-0.5 border-s border-border/70 ps-2">
+                          {item.children.map((child) => {
+                            if (child.children && child.children.length > 0) {
+                              return (
+                                <li class="space-y-0.5">
+                                  <p class="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted">
+                                    <span class="flex size-8 shrink-0 items-center justify-center">
+                                      <Icon name={child.icon ?? 'file'} size={16} />
+                                    </span>
+                                    <span data-dropdown-label={child.key} class="min-w-0 flex-1 truncate">
+                                      {child.label}
+                                    </span>
+                                  </p>
+                                  {/* One more level: the guide steps in under the 32px tile's centre. */}
+                                  <ul class="ms-6 space-y-0.5 border-s border-border/60 ps-1.5">
+                                    {child.children.map((subChild) => (
+                                      <li>
+                                        <DrawerNavLink item={subChild} depth={2} />
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </li>
+                              );
+                            }
+                            return (
+                              <li>
+                                <DrawerNavLink item={child} depth={1} />
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  }
+
+                  return <DrawerNavLink item={item} />;
+                })
+              }
+            </nav>
+
+            <!-- Dedicated Languages Section (NO popups!) -->
+            {
+              showLanguageSwitcher && (
+                <div class="pt-4 border-t border-border space-y-2.5">
+                  <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+                    <Icon name="globe" size={14} />
+                    <span data-drawer-lang-heading>{m.common_change_language({}, { locale })}</span>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2" data-drawer-language-section>
+                    {
+                      LOCALES.map((loc) => {
+                        const meta = LOCALE_METADATA[loc];
+                        const targetUrl = (switcherAlternates ?? alternates)[loc];
+                        const isCurrent = loc === locale;
+                        if (!targetUrl) {
+                          return (
+                            <span class="flex items-center justify-between rounded-lg border border-border/50 px-3 py-2 text-xs text-muted opacity-40 cursor-not-allowed">
+                              <span>{meta.name}</span>
+                              <span lang="en" dir="ltr" class="text-[10px] uppercase">{loc}</span>
+                            </span>
+                          );
+                        }
+                        return (
+                          <a
+                            href={targetUrl}
+                            data-drawer-lang-link
+                            data-target={targetUrl}
+                            aria-current={isCurrent ? 'true' : undefined}
+                            class:list={[
+                              'flex items-center justify-between rounded-lg border px-3 py-2 text-xs transition-colors cursor-pointer',
+                              isCurrent
+                                ? 'border-primary bg-primary text-primary-fg font-semibold shadow-xs'
+                                : 'border-border bg-bg/50 hover:bg-surface-hover hover:border-primary/50 text-fg',
+                            ]}
+                          >
+                            <span class="truncate">{meta.name}</span>
+                            <div class="flex items-center gap-1">
+                              <span lang="en" dir="ltr" class:list={['text-[10px] uppercase', isCurrent ? 'opacity-90' : 'opacity-60']} data-drawer-lang-code>{loc}</span>
+                              <span data-drawer-lang-check class:list={['shrink-0', !isCurrent && 'hidden']}>
+                                <Icon name="check" size={12} class="shrink-0" />
+                              </span>
+                            </div>
+                          </a>
+                        );
+                      })
+                    }
+                  </div>
+                </div>
+              )
+            }
+
+            <!-- Dedicated Theme Toggle Section -->
+            {
+              siteConfig.ui.showThemeToggle && (
+                <div class="pt-4 border-t border-border flex items-center justify-between gap-3">
+                  <span data-drawer-theme-label class="text-xs font-semibold uppercase tracking-wider text-muted">
+                    {m.common_theme_toggle({}, { locale })}
+                  </span>
+                  <ThemeToggle locale={locale} />
+                </div>
+              )
+            }
+
+            {
+              effectiveShowCookies && (
+                <div class="pt-4 border-t border-border">
+                  <button
+                    type="button"
+                    data-open-cookie-settings
+                    aria-haspopup="dialog"
+                    class="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-hover hover:text-fg cursor-pointer"
+                  >
+                    <span class="inline-flex items-center gap-2">
+                      <Icon name="shield" size={14} />
+                      <span data-cookie-trigger-label>{m.cookie_settings_trigger({}, { locale })}</span>
+                    </span>
+                    <Icon name="chevron-right" size={13} class="rtl:rotate-180 opacity-60" />
+                  </button>
+                </div>
+              )
+            }
+
+            <!-- Get Started CTA -->
+            {
+              ctaHref && (
+                <div class="pt-2 pb-2">
+                  <Button href={ctaHref} block data-cta-link="get-started">
+                    {m.common_get_started({}, { locale })}
+                  </Button>
+                </div>
+              )
+            }
+          </div>
+
+          <!-- Panel 2: Search Tab Panel with its own scrolling -->
+          {
+            effectiveShowSearch && (
+              <div
+                id="drawer-panel-search"
+                role="tabpanel"
+                aria-labelledby="drawer-tab-btn-search"
+                data-drawer-panel="search"
+                class="hidden flex-1 overflow-hidden"
+              >
+                <DrawerSearch locale={locale} />
+              </div>
+            )
+          }
+        </div>
+      </aside>
+    </div>
+
+    <main
+      id="main-content"
+      tabindex="-1"
+      data-pagefind-body={noPagefind ? undefined : true}
+      data-pagefind-ignore={noPagefind ? true : undefined}
+      class:list={[
+        'flex-1 w-full',
+        hero || flushTop ? 'pt-0' : siteConfig.ui.stickyHeader ? 'pt-24 sm:pt-28' : 'pt-6 sm:pt-8',
+      ]}
+    >
+      {/* Full-bleed hero: rendered outside the content column so it spans the viewport. */}
+      {hero && <slot name="hero" />}
+
+      {
+        canvas ? (
+          <slot />
+        ) : (
+          <div
+            class:list={[
+              'layout-container pb-12 md:pb-16',
+              hero && 'pt-10 sm:pt-12',
+            ]}
+          >
+            <slot />
+          </div>
+        )
+      }
+    </main>
+
+    <footer class="border-t border-border bg-surface mt-auto pt-12 pb-8">
+      <div class="layout-container">
+        <LayoutHooks slot="footer-top" locale={locale} url={url} />
+        <!-- Multi-Column Footer Navigation Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 pb-10 border-b border-border/80">
+          <!-- Column 1: Brand & Tagline -->
+          <div class="space-y-3 sm:col-span-2 md:col-span-1">
+            <a
+              href={homeHref}
+              data-brand-link
+              class="inline-flex items-center gap-2 font-bold text-base tracking-tight hover:text-primary transition-colors"
+            >
+              {
+                hasLightLogo && brandLogo && (
+                  <img
+                    src={brandLogo.light}
+                    alt={showBrandText ? '' : logoAlt}
+                    width={brandLogo.width}
+                    height={brandLogo.height}
+                    class="brand-logo-light h-7 w-auto shrink-0 object-contain"
+                    data-has-dark={hasDarkLogo ? 'true' : undefined}
+                    decoding="async"
+                  />
+                )
+              }
+              {
+                hasDarkLogo && brandLogo && (
+                  <img
+                    src={brandLogo.dark}
+                    alt={showBrandText ? '' : logoAlt}
+                    width={brandLogo.width}
+                    height={brandLogo.height}
+                    class="brand-logo-dark h-7 w-auto shrink-0 object-contain"
+                    decoding="async"
+                  />
+                )
+              }
+              {showBrandText && <span>{siteName}</span>}
+            </a>
+            <p data-footer-tagline class="text-xs text-muted leading-relaxed max-w-xs">
+              {m.site_description({}, { locale })}
+            </p>
+          </div>
+
+          <!-- Columns 2, 3, 4: Dynamic Navigation Columns -->
+          {
+            footerNav.map((col) => (
+              <div class="space-y-3">
+                <span
+                  data-footer-col={col.key}
+                  class="block text-xs font-semibold uppercase tracking-wider text-muted"
+                >
+                  {col.title}
+                </span>
+                <ul class="space-y-2 text-xs">
+                  {col.items.map((item) => (
+                    <li>
+                      <a
+                        href={item.href}
+                        data-nav-link={item.key}
+                        target={item.external ? '_blank' : undefined}
+                        rel={item.external ? 'noopener noreferrer' : undefined}
+                        class:list={[
+                          'inline-flex items-center gap-1.5 transition-colors hover:text-primary',
+                          item.active ? 'text-primary font-medium' : 'text-fg/80',
+                        ]}
+                      >
+                        <span>{item.label}</span>
+                        {item.external && <Icon name="external-link" size={11} class="opacity-60 shrink-0" />}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          }
+        </div>
+
+        <!-- Bottom Bar: Rights & Legal Links -->
+        <div class="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted">
+          <div id="footer-rights">
+            © <span data-current-year data-locale={locale}>{formatYear(currentYear, locale)}</span> {siteName}.
+            <span data-footer-rights>{m.common_all_rights_reserved({}, { locale })}</span>
+          </div>
+
+          {
+            (legalNav.length > 0 || effectiveShowCookies) && (
+              <nav class="flex flex-wrap items-center gap-4 text-xs" aria-label={m.footer_col_legal({}, { locale })}>
+                {legalNav.map((item) => (
+                  <a
+                    href={item.href}
+                    data-nav-link={item.key}
+                    class="hover:underline transition-colors hover:text-fg"
+                  >
+                    {item.label}
+                  </a>
+                ))}
+                {effectiveShowCookies && (
+                  <button
+                    type="button"
+                    data-open-cookie-settings
+                    aria-haspopup="dialog"
+                    class="hover:underline transition-colors hover:text-fg cursor-pointer"
+                  >
+                    <span data-cookie-trigger-label>{m.cookie_settings_trigger({}, { locale })}</span>
+                  </button>
+                )}
+              </nav>
+            )
+          }
+        </div>
+        <LayoutHooks slot="footer-bottom" locale={locale} url={url} />
+      </div>
+    </footer>
+
+    {effectiveShowSearch && <SearchModal locale={locale} />}
+    {
+      effectiveShowCookies && (
+        <CookieConsent locale={locale} privacyHref={privacyHref} termsHref={termsHref} />
+      )
+    }
+    {import.meta.env.DEV && <DevThemePreview locale={locale} />}
+
+    <!--
+      Icons a script has to place later. The code-copy button is built at
+      runtime and shows two states; its markup is rendered here by `Icon` and
+      cloned, so client code never carries a second copy of the SVG paths.
+    -->
+    <template data-icon-template="code-copy">
+      <Icon name="copy" size={14} class="code-copy-copy" />
+      <Icon name="check" size={14} class="code-copy-check" />
+    </template>
+
+    <style>
+      :where(a, button, input, select, textarea):focus-visible {
+        outline: 2px solid var(--color-primary);
+        outline-offset: 2px;
+      }
+    </style>
+
+    <script>
+      import { formatYear } from '@/i18n/format';
+      import '@/scripts/lenis';
+      import '@/scripts/chronotrig';
+
+      function updateYear() {
+        const year = new Date().getFullYear();
+        document.querySelectorAll<HTMLElement>('[data-current-year]').forEach((el) => {
+          const activeLocale = el.dataset.locale || document.documentElement.lang || 'en';
+          el.textContent = formatYear(year, activeLocale);
+        });
+      }
+
+      function setupDesktopDropdowns() {
+        const bindMenuUnit = (
+          wrapper: HTMLElement,
+          triggerSelector: string,
+          menuSelector: string
+        ) => {
+          if (wrapper.dataset.bound === 'true') return;
+          wrapper.dataset.bound = 'true';
+
+          const trigger = wrapper.querySelector<HTMLButtonElement>(triggerSelector);
+          const menu = wrapper.querySelector<HTMLElement>(menuSelector);
+          if (!trigger || !menu) return;
+
+          const setOpen = (open: boolean) => {
+            trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (open) {
+              delete menu.dataset.forceClosed;
+            }
+          };
+
+          wrapper.addEventListener('mouseenter', () => setOpen(true));
+          wrapper.addEventListener('mouseleave', () => {
+            delete menu.dataset.forceClosed;
+            trigger.setAttribute('aria-expanded', 'false');
+          });
+
+          wrapper.addEventListener('focusin', () => {
+            if (menu.dataset.forceClosed !== 'true') {
+              setOpen(true);
+            }
+          });
+          wrapper.addEventListener('focusout', (event) => {
+            const next = event.relatedTarget as Node | null;
+            if (!next || !wrapper.contains(next)) {
+              delete menu.dataset.forceClosed;
+              trigger.setAttribute('aria-expanded', 'false');
+            }
+          });
+
+          trigger.addEventListener('click', () => {
+            const currentlyClosed =
+              menu.dataset.forceClosed === 'true' ||
+              trigger.getAttribute('aria-expanded') !== 'true';
+            if (currentlyClosed) {
+              setOpen(true);
+            } else {
+              menu.dataset.forceClosed = 'true';
+              trigger.setAttribute('aria-expanded', 'false');
+            }
+          });
+
+          wrapper.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+              event.stopPropagation();
+              menu.dataset.forceClosed = 'true';
+              trigger.setAttribute('aria-expanded', 'false');
+              trigger.focus();
+            } else if (event.key === 'ArrowDown' && document.activeElement === trigger) {
+              event.preventDefault();
+              setOpen(true);
+              const firstItem = menu.querySelector<HTMLElement>('a[href], button');
+              firstItem?.focus();
+            }
+          });
+        };
+
+        document.querySelectorAll<HTMLElement>('[data-dropdown-item]').forEach((item) => {
+          bindMenuUnit(item, '[data-dropdown-trigger]', '[data-dropdown-menu]');
+        });
+        document.querySelectorAll<HTMLElement>('[data-subdropdown-item]').forEach((item) => {
+          bindMenuUnit(item, '[data-subdropdown-trigger]', '[data-subdropdown-menu]');
+        });
+      }
+
+      function setupMobileMenu() {
+        const menuBtn = document.querySelector<HTMLButtonElement>('[data-mobile-menu-btn]');
+        const mobileSearchBtn = document.querySelector<HTMLButtonElement>('[data-mobile-search-btn]');
+        const drawer = document.querySelector<HTMLElement>('[data-mobile-menu]');
+        if (!drawer || drawer.dataset.bound === 'true') return;
+        drawer.dataset.bound = 'true';
+
+        const abortController = new AbortController();
+        document.addEventListener(
+          'astro:before-swap',
+          () => abortController.abort(),
+          { once: true }
+        );
+
+        const backdrop = drawer.querySelector<HTMLElement>('[data-mobile-backdrop]');
+        const panel = drawer.querySelector<HTMLElement>('[data-mobile-panel]');
+        const closeBtn = drawer.querySelector<HTMLButtonElement>('[data-close-menu]');
+        let lastFocused: HTMLElement | null = null;
+
+        const setBackgroundInert = (active: boolean) => {
+          document
+            .querySelectorAll<HTMLElement>(
+              'header, main, footer, [data-search-modal], [data-cookie-root]'
+            )
+            .forEach((el) => {
+              el.inert = active;
+            });
+        };
+
+        const getFocusableInPanel = (): HTMLElement[] => {
+          if (!panel) return [];
+          const selector =
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+          return [...panel.querySelectorAll<HTMLElement>(selector)].filter(
+            (el) => !el.closest('.hidden, [hidden]') && el.getClientRects().length > 0
+          );
+        };
+
+        function switchTab(targetTab: 'nav' | 'search') {
+          const tabNav = drawer?.querySelector<HTMLButtonElement>('[data-drawer-tab="nav"]');
+          const tabSearch = drawer?.querySelector<HTMLButtonElement>('[data-drawer-tab="search"]');
+          const panelNav = drawer?.querySelector<HTMLElement>('[data-drawer-panel="nav"]');
+          const panelSearch = drawer?.querySelector<HTMLElement>('[data-drawer-panel="search"]');
+          const isNav = targetTab === 'nav' || !tabSearch || !panelSearch;
+
+          if (tabNav && tabSearch && panelNav && panelSearch) {
+            tabNav.setAttribute('aria-selected', isNav ? 'true' : 'false');
+            tabNav.classList.toggle('border-primary', isNav);
+            tabNav.classList.toggle('text-primary', isNav);
+            tabNav.classList.toggle('font-semibold', isNav);
+            tabNav.classList.toggle('border-transparent', !isNav);
+            tabNav.classList.toggle('text-muted', !isNav);
+
+            tabSearch.setAttribute('aria-selected', !isNav ? 'true' : 'false');
+            tabSearch.classList.toggle('border-primary', !isNav);
+            tabSearch.classList.toggle('text-primary', !isNav);
+            tabSearch.classList.toggle('font-semibold', !isNav);
+            tabSearch.classList.toggle('border-transparent', isNav);
+            tabSearch.classList.toggle('text-muted', isNav);
+
+            panelNav.classList.toggle('hidden', !isNav);
+            panelSearch.classList.toggle('hidden', isNav);
+
+            if (!isNav) {
+              const searchInput = panelSearch.querySelector<HTMLInputElement>('[data-drawer-search-input]');
+              setTimeout(() => searchInput?.focus(), 320);
+            }
+          }
+        }
+
+        const open = (tab: 'nav' | 'search' = 'nav') => {
+          if (drawer.classList.contains('is-open')) {
+            switchTab(tab);
+            return;
+          }
+
+          lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          switchTab(tab);
+          menuBtn?.setAttribute('aria-expanded', 'true');
+          document.documentElement.style.overflow = 'hidden';
+          document.body.style.overflow = 'hidden';
+          setBackgroundInert(true);
+          if (panel) panel.inert = false;
+          drawer.classList.add('is-open');
+
+          if (tab !== 'search') {
+            requestAnimationFrame(() => closeBtn?.focus());
+          }
+        };
+
+        const close = ({ restoreFocus = true }: { restoreFocus?: boolean } = {}) => {
+          if (!drawer.classList.contains('is-open')) return;
+
+          menuBtn?.setAttribute('aria-expanded', 'false');
+          document.documentElement.style.overflow = '';
+          document.body.style.overflow = '';
+          setBackgroundInert(false);
+          if (panel) panel.inert = true;
+          drawer.classList.remove('is-open');
+
+          if (restoreFocus) {
+            const target = lastFocused && lastFocused.isConnected ? lastFocused : menuBtn;
+            target?.focus();
+          }
+          lastFocused = null;
+        };
+
+        menuBtn?.addEventListener('click', () => open('nav'));
+        mobileSearchBtn?.addEventListener('click', () => open('search'));
+        closeBtn?.addEventListener('click', () => close());
+        backdrop?.addEventListener('click', () => close());
+
+        document.addEventListener(
+          'keydown',
+          (event) => {
+            if (!drawer.classList.contains('is-open')) return;
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              close();
+              return;
+            }
+            if (event.key === 'Tab') {
+              const focusables = getFocusableInPanel();
+              if (focusables.length === 0) {
+                event.preventDefault();
+                return;
+              }
+              const first = focusables[0];
+              const last = focusables[focusables.length - 1];
+              const active = document.activeElement as HTMLElement | null;
+              if (event.shiftKey && (!active || active === first || !panel?.contains(active))) {
+                event.preventDefault();
+                last.focus();
+              } else if (!event.shiftKey && (!active || active === last || !panel?.contains(active))) {
+                event.preventDefault();
+                first.focus();
+              }
+            }
+          },
+          { signal: abortController.signal }
+        );
+
+        const desktopMq = window.matchMedia('(min-width: 1024px)');
+        desktopMq.addEventListener(
+          'change',
+          (event) => {
+            if (event.matches) close({ restoreFocus: false });
+          },
+          { signal: abortController.signal }
+        );
+
+        document.addEventListener(
+          'app:close-drawer',
+          () => close({ restoreFocus: false }),
+          { signal: abortController.signal }
+        );
+
+        drawer.querySelectorAll<HTMLButtonElement>('[data-drawer-tab]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const tabName = btn.dataset.drawerTab === 'search' ? 'search' : 'nav';
+            switchTab(tabName);
+          });
+        });
+
+        drawer.querySelectorAll<HTMLAnchorElement>('[data-drawer-lang-link]').forEach((link) => {
+          link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const target = link.getAttribute('data-target') || link.href;
+            if (target) {
+              close({ restoreFocus: false });
+              window.location.assign(target);
+            }
+          });
+        });
+
+        drawer.querySelectorAll<HTMLAnchorElement>('a[href]:not([data-drawer-lang-link])').forEach((link) => {
+          link.addEventListener('click', () => {
+            close({ restoreFocus: false });
+          });
+        });
+      }
+
+      function setupCodeCopyButtons() {
+        const copyLabel = document.body.dataset.copyLabel || 'Copy code';
+        const copiedLabel = document.body.dataset.copiedLabel || 'Copied!';
+        const iconTemplate = document.querySelector<HTMLTemplateElement>(
+          'template[data-icon-template="code-copy"]'
+        );
+
+        document.querySelectorAll<HTMLPreElement>('.prose pre').forEach((pre) => {
+          if (pre.dataset.copyBound === 'true') return;
+          pre.dataset.copyBound = 'true';
+
+          const wrapper = document.createElement('div');
+          wrapper.className = 'code-block-wrapper';
+          pre.parentNode?.insertBefore(wrapper, pre);
+          wrapper.appendChild(pre);
+
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'code-copy-btn';
+          btn.setAttribute('data-pagefind-ignore', 'true');
+          btn.setAttribute('aria-label', copyLabel);
+          btn.title = copyLabel;
+
+          if (iconTemplate) btn.append(iconTemplate.content.cloneNode(true));
+
+          let resetTimer = 0;
+          btn.addEventListener('click', async () => {
+            const source = (pre.querySelector('code') ?? pre).textContent ?? '';
+            try {
+              await navigator.clipboard.writeText(source);
+              window.clearTimeout(resetTimer);
+              btn.dataset.copied = 'true';
+              btn.setAttribute('aria-label', copiedLabel);
+              btn.title = copiedLabel;
+              resetTimer = window.setTimeout(() => {
+                delete btn.dataset.copied;
+                btn.setAttribute('aria-label', copyLabel);
+                btn.title = copyLabel;
+              }, 1800);
+            } catch {
+              // Clipboard API may be unavailable in non-secure contexts; fail silently.
+            }
+          });
+
+          wrapper.appendChild(btn);
+        });
+      }
+
+      if (document.documentElement.dataset.baseLayoutBound !== 'true') {
+        document.documentElement.dataset.baseLayoutBound = 'true';
+        document.addEventListener('astro:page-load', () => {
+          updateYear();
+          setupDesktopDropdowns();
+          setupMobileMenu();
+          setupCodeCopyButtons();
+        });
+        document.addEventListener('astro:before-preparation', () => {
+          document.dispatchEvent(new CustomEvent('app:close-drawer'));
+        });
+      }
+
+      updateYear();
+      setupDesktopDropdowns();
+      setupMobileMenu();
+      setupCodeCopyButtons();
+    </script>
+  </body>
+</html>

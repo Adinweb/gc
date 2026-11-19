@@ -1,0 +1,159 @@
+---
+/**
+ * Accessible styled checkbox primitive inspired by PrebuiltUI checkbox components.
+ * Supports `default` and `card` variants, indeterminate state (`<Icon name="minus" />`),
+ * disabled state, OKLCH semantic styling, CSS logical spacing, and Paraglide defaults.
+ */
+import Icon from '@/components/Icon.astro';
+import type { Locale } from '@/i18n/locales';
+import { resolveComponentLocale } from '@/libs/ui/locale';
+import * as m from '@/paraglide/messages';
+
+interface Props {
+  id?: string;
+  name?: string;
+  locale?: Locale | string;
+  label?: string;
+  description?: string | null;
+  checked?: boolean;
+  indeterminate?: boolean;
+  disabled?: boolean;
+  required?: boolean;
+  size?: 'sm' | 'md';
+  variant?: 'default' | 'card';
+  class?: string;
+  [attribute: string]: unknown;
+}
+
+const {
+  id,
+  name,
+  locale,
+  label,
+  description,
+  checked = false,
+  indeterminate = false,
+  disabled = false,
+  required = false,
+  size = 'md',
+  variant = 'default',
+  class: className,
+  ...rest
+} = Astro.props;
+
+const activeLocale = resolveComponentLocale(locale, Astro.url.pathname);
+const usingDefaults = label === undefined && description === undefined;
+const resolvedLabel = label ?? m.block_checkbox_default_label({}, { locale: activeLocale });
+const resolvedDesc =
+  description === null
+    ? undefined
+    : (description ?? (usingDefaults ? m.block_checkbox_default_desc({}, { locale: activeLocale }) : undefined));
+
+const inputId = id ?? `checkbox-${crypto.randomUUID().slice(0, 6)}`;
+const isSmall = size === 'sm';
+const iconSize = isSmall ? 12 : 14;
+const attributes = rest as Record<string, string | number | boolean | undefined>;
+---
+
+<label
+  for={inputId}
+  data-ui-checkbox
+  data-indeterminate={indeterminate ? 'true' : 'false'}
+  class:list={[
+    'not-prose group flex items-start select-none',
+    isSmall ? 'gap-2.5' : 'gap-3',
+    disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+    variant === 'card'
+      ? 'rounded-2xl border border-border bg-surface p-3.5 transition-colors hover:border-primary/45 has-[input:checked]:border-primary has-[input:checked]:bg-primary/5 sm:p-4'
+      : '',
+    className,
+  ]}
+  {...attributes}
+>
+  <input
+    id={inputId}
+    name={name}
+    type="checkbox"
+    checked={checked}
+    disabled={disabled}
+    required={required}
+    class="peer sr-only"
+    data-ui-checkbox-input
+  />
+
+  <span
+    aria-hidden="true"
+    data-ui-checkbox-box
+    class:list={[
+      'mt-0.5 inline-flex shrink-0 items-center justify-center rounded-md border transition-colors peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary',
+      isSmall ? 'size-4' : 'size-5',
+      checked || indeterminate
+        ? 'border-primary bg-primary text-primary-fg'
+        : 'border-border bg-bg text-transparent group-hover:border-primary/60',
+    ]}
+  >
+    <span data-icon-check hidden={indeterminate}>
+      <Icon name="check" size={iconSize} />
+    </span>
+    <span data-icon-minus hidden={!indeterminate}>
+      <Icon name="minus" size={iconSize} />
+    </span>
+  </span>
+
+  <span class="min-w-0 flex-1">
+    <span
+      class:list={[
+        'block',
+        isSmall ? 'text-xs font-medium text-muted' : 'text-sm font-semibold text-fg',
+      ]}
+    >
+      {resolvedLabel}
+    </span>
+    {resolvedDesc && <span class="mt-0.5 block text-xs leading-relaxed text-muted">{resolvedDesc}</span>}
+  </span>
+</label>
+
+<script>
+  function initUiCheckboxes() {
+    const labels = document.querySelectorAll<HTMLElement>('[data-ui-checkbox]');
+
+    labels.forEach((wrapper) => {
+      if (wrapper.dataset.bound === 'true') return;
+      wrapper.dataset.bound = 'true';
+
+      const input = wrapper.querySelector<HTMLInputElement>('[data-ui-checkbox-input]');
+      const box = wrapper.querySelector<HTMLElement>('[data-ui-checkbox-box]');
+      const checkIcon = wrapper.querySelector<HTMLElement>('[data-icon-check]');
+      const minusIcon = wrapper.querySelector<HTMLElement>('[data-icon-minus]');
+      if (!input || !box) return;
+
+      if (wrapper.dataset.indeterminate === 'true') {
+        input.indeterminate = true;
+      }
+
+      const syncBox = () => {
+        const active = input.checked || input.indeterminate;
+        box.classList.toggle('border-primary', active);
+        box.classList.toggle('bg-primary', active);
+        box.classList.toggle('text-primary-fg', active);
+        box.classList.toggle('border-border', !active);
+        box.classList.toggle('bg-bg', !active);
+        box.classList.toggle('text-transparent', !active);
+
+        if (checkIcon && minusIcon) {
+          minusIcon.hidden = !input.indeterminate;
+          checkIcon.hidden = input.indeterminate || !input.checked;
+        }
+      };
+
+      syncBox();
+      input.addEventListener('change', () => {
+        input.indeterminate = false;
+        syncBox();
+      });
+    });
+  }
+
+  document.addEventListener('astro:page-load', initUiCheckboxes);
+  initUiCheckboxes();
+</script>

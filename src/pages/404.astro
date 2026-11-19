@@ -1,0 +1,433 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import Button from '@/components/Button.astro';
+import { DEFAULT_LOCALE, LOCALES, LOCALE_METADATA, type Locale } from '@/i18n/locales';
+import { formatNumber, formatYear } from '@/i18n/format';
+import { getNavigationSlots, type NavItem } from '@/libs/config/navigation';
+import { getHomeHref, getPageUrl } from '@/libs/content/service';
+import { siteConfig } from '@/libs/config/app';
+import * as m from '@/paraglide/messages';
+
+const locale: Locale = DEFAULT_LOCALE;
+const defaultLanguageName = LOCALE_METADATA[DEFAULT_LOCALE].name;
+const siteName = siteConfig.name;
+
+// A 404 has no translations of its own: one static document serves every
+// unknown path. Language switching therefore leads to each locale's home
+// page, the closest page that is guaranteed to exist. The canonical URL is
+// that home page too: the 404 is served at whatever address was requested,
+// and `/404` itself is not a page of the site.
+//
+// Only locales that actually publish a home page are offered: a locale can be
+// live without one (`/de/about/` exists before `home/de.mdx` is translated),
+// and `/<locale>/` would be a dead link in that state.
+const homePages = Object.fromEntries(
+  (
+    await Promise.all(
+      LOCALES.map(async (loc) => [loc, await getPageUrl('home', loc)] as const)
+    )
+  ).filter(([, href]) => href !== null)
+) as Partial<Record<Locale, string>>;
+
+const alternates = homePages;
+
+const homeHref = await getHomeHref(locale);
+
+/**
+ * Language picker for visitors without JavaScript.
+ *
+ * The static document is always the default locale's copy: the visitor's
+ * prefix is only read at runtime. A `<noscript>` list of the homes that exist
+ * is therefore the one honest offline affordance this page can offer — a
+ * Persian visitor reaches `/fa/` in one click instead of being stuck on
+ * English.
+ */
+const languageLinks = LOCALES.flatMap((loc) => {
+  const href = homePages[loc];
+  return href ? [{ locale: loc, href }] : [];
+});
+
+function flattenNavItems(
+  items: readonly NavItem[],
+  links: Map<string, { key: string; label: string; href: string }>,
+  groups: Map<string, string>
+): void {
+  for (const item of items) {
+    if (item.children && item.children.length > 0) {
+      groups.set(item.key, item.label);
+      flattenNavItems(item.children, links, groups);
+    }
+    if (item.href !== undefined) {
+      links.set(item.key, { key: item.key, label: item.label, href: item.href });
+    }
+  }
+}
+
+// The client needs the complete navigation and locale metadata to re-render
+// the page for the prefix of the requested URL. Built from `getNavigationSlots()`
+// so header dropdowns, mobile drawer, and 4-column footer all localize cleanly.
+const i18nData = Object.fromEntries(
+  await Promise.all(
+    LOCALES.map(async (loc) => {
+      const slots = await getNavigationSlots(loc);
+      const linksMap = new Map<string, { key: string; label: string; href: string }>();
+      const groupsMap = new Map<string, string>();
+
+      flattenNavItems(slots.header, linksMap, groupsMap);
+      flattenNavItems(slots.drawer, linksMap, groupsMap);
+      for (const col of slots.footer) {
+        flattenNavItems(col.items, linksMap, groupsMap);
+      }
+      flattenNavItems(slots.legal, linksMap, groupsMap);
+
+      const resolvedHomeHref =
+        linksMap.get('home')?.href ?? homePages[loc] ?? homePages[DEFAULT_LOCALE] ?? '/';
+
+      return [
+        loc,
+        {
+          title: m.common_not_found_title({}, { locale: loc }),
+          desc: m.common_not_found_desc({}, { locale: loc }),
+          siteDesc: m.site_description({}, { locale: loc }),
+          backHome: m.common_back_home({}, { locale: loc }),
+          goDefault: m.common_go_default_version({ language: defaultLanguageName }, { locale: loc }),
+          defaultHint: m.common_default_version_hint({ language: defaultLanguageName }, { locale: loc }),
+          cta: m.common_get_started({}, { locale: loc }),
+          rights: m.common_all_rights_reserved({}, { locale: loc }),
+          menu: m.common_menu({}, { locale: loc }),
+          drawerTabNav: m.drawer_tab_nav({}, { locale: loc }),
+          drawerTabSearch: m.drawer_tab_search({}, { locale: loc }),
+          search: m.common_search_placeholder({}, { locale: loc }),
+          searchHint: m.common_type_to_search({}, { locale: loc }),
+          searchEmpty: m.common_no_results({}, { locale: loc }),
+          searchResultsCount: m.common_search_results_count({ count: '{count}' }, { locale: loc }),
+          close: m.common_close({}, { locale: loc }),
+          pressEsc: m.common_press_esc({}, { locale: loc }),
+          changeLanguage: m.common_change_language({}, { locale: loc }),
+          themeToggle: m.common_theme_toggle({}, { locale: loc }),
+          themeLight: m.common_theme_light({}, { locale: loc }),
+          themeDark: m.common_theme_dark({}, { locale: loc }),
+          cookieTrigger: m.cookie_settings_trigger({}, { locale: loc }),
+          code: formatNumber(404, loc),
+          year: formatYear(new Date().getFullYear(), loc),
+          homeHref: resolvedHomeHref,
+          ctaHref: await getPageUrl(siteConfig.ui.ctaPage, loc),
+          nav: [...linksMap.values()],
+          dropdownLabels: Object.fromEntries(groupsMap),
+          footerCols: Object.fromEntries(slots.footer.map((col) => [col.key, col.title])),
+          dir: LOCALE_METADATA[loc].dir,
+          lang: LOCALE_METADATA[loc].htmlLang,
+          fontFamily: LOCALE_METADATA[loc].fontFamily,
+        },
+      ];
+    })
+  )
+);
+---
+
+<BaseLayout
+  title={m.common_not_found_title({}, { locale })}
+  description={m.common_not_found_desc({}, { locale })}
+  locale={locale}
+  url={homeHref}
+  activeUrl={null}
+  alternates={alternates}
+  noindex
+  noPagefind
+>
+  <div class="text-center py-20 px-4 max-w-xl mx-auto">
+    <p id="not-found-code" data-hero-kicker class="text-7xl font-extrabold text-primary mb-4 tracking-tight tabular-nums">
+      {formatNumber(404, locale)}
+    </p>
+    <h1 class="text-3xl font-bold text-fg mb-4" id="not-found-title" data-hero-title>
+      {m.common_not_found_title({}, { locale })}
+    </h1>
+    <p class="text-muted max-w-md mx-auto mb-8 text-base leading-relaxed" id="not-found-desc" data-hero-subtitle>
+      {m.common_not_found_desc({}, { locale })}
+    </p>
+
+    <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+      <Button id="not-found-home-link" href={homeHref} class="w-full sm:w-auto">
+        {m.common_back_home({}, { locale })}
+      </Button>
+
+      <Button
+        id="not-found-default-link"
+        href="/"
+        variant="secondary"
+        class="hidden w-full sm:w-auto"
+      >
+        {m.common_go_default_version({ language: defaultLanguageName }, { locale })}
+      </Button>
+    </div>
+
+    <p id="not-found-default-hint" class="hidden text-xs text-muted mt-4">
+      {m.common_default_version_hint({ language: defaultLanguageName }, { locale })}
+    </p>
+  </div>
+
+  <noscript>
+    <div
+      class="mx-auto mb-14 max-w-xl rounded-2xl border border-border bg-surface px-6 py-5 text-start"
+    >
+      <p class="text-xs font-semibold uppercase tracking-wider text-muted rtl:tracking-normal">
+        {m.common_change_language({}, { locale })}
+      </p>
+      <ul class="mt-3 flex flex-wrap gap-2">
+        {
+          languageLinks.map(({ locale: linkLocale, href }) => (
+            <li>
+              <a
+                href={href}
+                hreflang={LOCALE_METADATA[linkLocale].htmlLang}
+                lang={LOCALE_METADATA[linkLocale].htmlLang}
+                dir={LOCALE_METADATA[linkLocale].dir}
+                class="chip px-3 py-1.5 text-sm"
+              >
+                {LOCALE_METADATA[linkLocale].name}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </noscript>
+
+  <script define:vars={{ LOCALES, DEFAULT_LOCALE, i18nData, siteName }}>
+    function updateNotFoundPage() {
+      // Guard: only execute while the 404 view itself is mounted in the DOM.
+      // Prevents `astro:page-load` from polluting `document.title` or `lang`/`dir`
+      // after the user navigates away from 404 via `<ClientRouter />`.
+      const codeEl = document.getElementById('not-found-code');
+      if (!codeEl) return;
+
+      const pathname = window.location.pathname;
+      const segments = pathname.split('/').filter(Boolean);
+      const firstSegment = segments[0];
+      const isKnownLocale = Boolean(
+        firstSegment && LOCALES.some((loc) => loc === firstSegment)
+      );
+      const detectedLocale = isKnownLocale && firstSegment ? firstSegment : DEFAULT_LOCALE;
+      const data = i18nData[detectedLocale] || i18nData[DEFAULT_LOCALE];
+
+      // Update document attributes, typography & title
+      document.documentElement.lang = data.lang;
+      document.documentElement.dir = data.dir;
+      document.documentElement.style.fontFamily = data.fontFamily;
+      document.title = `${data.title} | ${siteName}`;
+
+      // Update 404 body text nodes
+      codeEl.textContent = data.code;
+
+      const titleEl = document.getElementById('not-found-title');
+      if (titleEl) titleEl.textContent = data.title;
+
+      const descEl = document.getElementById('not-found-desc');
+      if (descEl) descEl.textContent = data.desc;
+
+      // Update home link
+      const homeLink = document.getElementById('not-found-home-link');
+      if (homeLink) {
+        homeLink.href = data.homeHref;
+        homeLink.textContent = data.backHome;
+      }
+
+      // Re-label shared header, mobile drawer, and footer controls. The CTA's
+      // label is localized but its destination was rendered for the default
+      // locale, so it moves to the detected locale's page too — and hides when
+      // that locale has not published the page, exactly like the layout does.
+      document.querySelectorAll('[data-cta-link="get-started"]').forEach((el) => {
+        el.textContent = data.cta;
+        if (data.ctaHref) {
+          el.setAttribute('href', data.ctaHref);
+          el.style.display = '';
+        } else {
+          el.removeAttribute('href');
+          el.style.display = 'none';
+        }
+      });
+      const rights = document.querySelector('[data-footer-rights]');
+      if (rights) rights.textContent = data.rights;
+      const tagline = document.querySelector('[data-footer-tagline]');
+      if (tagline) tagline.textContent = data.siteDesc;
+      document.querySelectorAll('[data-current-year]').forEach((el) => {
+        if (el instanceof HTMLElement) el.dataset.locale = detectedLocale;
+        el.textContent = data.year;
+      });
+      document.querySelectorAll('[data-cookie-trigger-label]').forEach((el) => {
+        el.textContent = data.cookieTrigger;
+      });
+
+      const isDark = document.documentElement.dataset.theme === 'dark';
+      document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+        if (btn instanceof HTMLElement) {
+          btn.dataset.labelLight = data.themeLight;
+          btn.dataset.labelDark = data.themeDark;
+        }
+        const label = isDark ? data.themeLight : data.themeDark;
+        btn.setAttribute('aria-label', label);
+        btn.setAttribute('title', label);
+      });
+
+      document.querySelectorAll('[data-open-search], [data-mobile-search-btn]').forEach((btn) => {
+        btn.setAttribute('aria-label', data.search);
+        btn.setAttribute('title', data.search);
+      });
+      document.querySelectorAll('[data-mobile-menu-btn]').forEach((btn) => {
+        btn.setAttribute('aria-label', data.menu);
+        btn.setAttribute('title', data.menu);
+      });
+      document.querySelectorAll('[data-close-menu]').forEach((btn) => {
+        btn.setAttribute('aria-label', data.close);
+        btn.setAttribute('title', data.close);
+      });
+
+      const tabNavLabel = document.querySelector('[data-drawer-tab-label="nav"]');
+      if (tabNavLabel) tabNavLabel.textContent = data.drawerTabNav;
+      const tabSearchLabel = document.querySelector('[data-drawer-tab-label="search"]');
+      if (tabSearchLabel) tabSearchLabel.textContent = data.drawerTabSearch;
+      const drawerLangHeading = document.querySelector('[data-drawer-lang-heading]');
+      if (drawerLangHeading) drawerLangHeading.textContent = data.changeLanguage;
+      const drawerThemeLabel = document.querySelector('[data-drawer-theme-label]');
+      if (drawerThemeLabel) drawerThemeLabel.textContent = data.themeToggle;
+
+      // Search modal & drawer search localization
+      const searchModal = document.querySelector('[data-search-modal]');
+      if (searchModal instanceof HTMLElement) {
+        searchModal.dataset.locale = detectedLocale;
+        searchModal.dataset.placeholder = data.searchHint;
+        searchModal.dataset.noResults = data.searchEmpty;
+        searchModal.dataset.resultsCount = data.searchResultsCount;
+      }
+      const searchTitle = document.getElementById('search-modal-title');
+      if (searchTitle) searchTitle.textContent = data.search;
+      const searchInput = document.getElementById('search-input');
+      if (searchInput) {
+        searchInput.placeholder = data.search;
+        searchInput.setAttribute('aria-label', data.search);
+      }
+      const searchHintMessage = document.getElementById('search-placeholder-msg');
+      if (searchHintMessage && searchInput && !searchInput.value) {
+        searchHintMessage.textContent = data.searchHint;
+      }
+      const searchClose = document.getElementById('search-close-btn');
+      if (searchClose) {
+        searchClose.setAttribute('aria-label', data.close);
+        searchClose.setAttribute('title', data.close);
+      }
+      const searchEscHint = document.getElementById('search-esc-hint');
+      if (searchEscHint) searchEscHint.textContent = data.pressEsc;
+
+      const drawerSearch = document.querySelector('[data-drawer-search]');
+      if (drawerSearch instanceof HTMLElement) {
+        drawerSearch.dataset.locale = detectedLocale;
+        drawerSearch.dataset.placeholder = data.searchHint;
+        drawerSearch.dataset.noResults = data.searchEmpty;
+        drawerSearch.dataset.resultsCount = data.searchResultsCount;
+      }
+      const drawerSearchInput = document.querySelector('[data-drawer-search-input]');
+      if (drawerSearchInput instanceof HTMLInputElement) {
+        drawerSearchInput.placeholder = data.search;
+        drawerSearchInput.setAttribute('aria-label', data.search);
+      }
+
+      // Desktop & drawer language switchers
+      const switcherButton = document.querySelector('[data-switcher-button]');
+      if (switcherButton) {
+        switcherButton.setAttribute('aria-label', data.changeLanguage);
+        switcherButton.setAttribute('title', data.changeLanguage);
+      }
+      const activeLocale = document.querySelector('[data-switcher-active]');
+      if (activeLocale) activeLocale.textContent = detectedLocale;
+      document.querySelectorAll('[data-switcher-link]').forEach((link) => {
+        const isCurrent = link.getAttribute('data-target') === data.homeHref;
+        if (isCurrent) link.setAttribute('aria-current', 'true');
+        else link.removeAttribute('aria-current');
+        link.classList.toggle('bg-primary/10', isCurrent);
+        link.classList.toggle('font-medium', isCurrent);
+        link.classList.toggle('text-primary', isCurrent);
+        link.classList.toggle('text-fg', !isCurrent);
+        const check = link.querySelector('[data-switcher-check]');
+        if (check) check.classList.toggle('hidden', !isCurrent);
+      });
+      document.querySelectorAll('[data-drawer-lang-link]').forEach((link) => {
+        const isCurrent = link.getAttribute('data-target') === data.homeHref;
+        if (isCurrent) link.setAttribute('aria-current', 'true');
+        else link.removeAttribute('aria-current');
+        link.classList.toggle('border-primary', isCurrent);
+        link.classList.toggle('bg-primary', isCurrent);
+        link.classList.toggle('text-primary-fg', isCurrent);
+        link.classList.toggle('font-semibold', isCurrent);
+        link.classList.toggle('shadow-xs', isCurrent);
+        link.classList.toggle('border-border', !isCurrent);
+        link.classList.toggle('bg-bg/50', !isCurrent);
+        link.classList.toggle('text-fg', !isCurrent);
+        const check = link.querySelector('[data-drawer-lang-check]');
+        if (check) check.classList.toggle('hidden', !isCurrent);
+      });
+
+      // Update navigation links, dropdown headings, and footer column headings
+      document.querySelectorAll('[data-brand-link]').forEach((el) => {
+        el.setAttribute('href', data.homeHref);
+      });
+      for (const item of data.nav) {
+        document.querySelectorAll(`[data-nav-link="${item.key}"]`).forEach((el) => {
+          if (item.href) el.setAttribute('href', item.href);
+          // Drawer rows keep an icon tile before the label, so the label is
+          // marked: rewriting the first `span` would erase the icon instead.
+          const textSpan = el.querySelector('[data-nav-label]') ?? el.querySelector('span');
+          if (textSpan) textSpan.textContent = item.label;
+          else el.textContent = item.label;
+        });
+      }
+      for (const [key, label] of Object.entries(data.dropdownLabels)) {
+        document.querySelectorAll(`[data-dropdown-label="${key}"]`).forEach((el) => {
+          el.textContent = String(label);
+        });
+      }
+      for (const [key, title] of Object.entries(data.footerCols)) {
+        document.querySelectorAll(`[data-footer-col="${key}"]`).forEach((el) => {
+          el.textContent = String(title);
+        });
+      }
+
+      // Update default-locale fallback button safely (avoid pointing to a second 404)
+      const defaultLink = document.getElementById('not-found-default-link');
+      const defaultHint = document.getElementById('not-found-default-hint');
+      const defaultData = i18nData[DEFAULT_LOCALE];
+
+      if (defaultLink && defaultData) {
+        if (isKnownLocale && detectedLocale !== DEFAULT_LOCALE) {
+          const restOfPath = segments.slice(1).join('/');
+          const candidatePath = restOfPath ? `/${restOfPath}/` : '/';
+          const knownDefaultHrefs = new Set(
+            defaultData.nav.map((item) => item.href.split('#')[0]).filter(Boolean)
+          );
+          defaultLink.href = knownDefaultHrefs.has(candidatePath)
+            ? candidatePath
+            : defaultData.homeHref;
+          defaultLink.textContent = data.goDefault;
+          defaultLink.classList.remove('hidden');
+
+          if (defaultHint) {
+            defaultHint.textContent = data.defaultHint;
+            defaultHint.classList.remove('hidden');
+          }
+        } else {
+          defaultLink.classList.add('hidden');
+          if (defaultHint) defaultHint.classList.add('hidden');
+        }
+      }
+    }
+
+    updateNotFoundPage();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', updateNotFoundPage, { once: true });
+    }
+    if (document.documentElement.dataset.notFoundBound !== 'true') {
+      document.documentElement.dataset.notFoundBound = 'true';
+      document.addEventListener('astro:page-load', updateNotFoundPage);
+    }
+  </script>
+</BaseLayout>
+

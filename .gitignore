@@ -1,0 +1,35 @@
+# build output
+dist/
+# generated types
+.astro/
+
+# dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# environment variables
+.env
+.env.*
+!.env.example
+
+# test/build caches
+coverage/
+*.tsbuildinfo
+.pnpm-deps.log
+
+# macOS-specific files
+.DS_Store
+
+# jetbrains setting folder
+.idea/
+
+# paraglide generated files
+src/paraglide/
+.paraglide-work/
+.locale-archive/

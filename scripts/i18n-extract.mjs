@@ -1,0 +1,212 @@
+#!/usr/bin/env node
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import MagicString from 'magic-string';
+import { compileMessages } from './lib/compile-messages.mjs';
+import { readLocaleConfig } from './lib/locales.mjs';
+import {
+  readClientMessages,
+  readMergedMessages,
+  stripSchema,
+  writeClientMessages,
+} from './lib/merge-messages.mjs';
+
+const args = process.argv.slice(2);
+let targetPath = '';
+let namespace = 'common';
+let autoAdd = false;
+let replace = false;
+let dryRun = false;
+
+for (const arg of args) {
+  if (arg.startsWith('--target=')) {
+    targetPath = arg.slice(9);
+  } else if (arg.startsWith('--key=')) {
+    namespace = arg.slice(6);
+  } else if (arg === '--auto-add') {
+    autoAdd = true;
+  } else if (arg === '--replace') {
+    replace = true;
+  } else if (arg === '--dry-run') {
+    dryRun = true;
+  }
+}
+
+if (!targetPath) {
+  console.error(
+    'Usage: npm run i18n:extract -- --target=<file-or-dir> --key=<namespace> [--auto-add] [--replace] [--dry-run]'
+  );
+  process.exit(1);
+}
+
+const rootDir = process.cwd();
+const resolvedTarget = path.resolve(rootDir, targetPath);
+if (!fs.existsSync(resolvedTarget)) {
+  console.error(`Target path not found: ${resolvedTarget}`);
+  process.exit(1);
+}
+
+const filesToProcess = [];
+if (fs.statSync(resolvedTarget).isDirectory()) {
+  function walk(dir) {
+    for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, item.name);
+      if (item.isDirectory()) walk(p);
+      else if (item.name.endsWith('.astro') || item.name.endsWith('.mdx')) filesToProcess.push(p);
+    }
+  }
+  walk(resolvedTarget);
+} else {
+  filesToProcess.push(resolvedTarget);
+}
+
+const localeConfig = readLocaleConfig(rootDir);
+const LOCALES = localeConfig.locales;
+const BASE_LOCALE = localeConfig.defaultLocale || 'en';
+
+const mergedByLocale = {};
+const clientByLocale = {};
+for (const loc of LOCALES) {
+  mergedByLocale[loc] = stripSchema(readMergedMessages(loc, rootDir));
+  clientByLocale[loc] = stripSchema(readClientMessages(loc, rootDir));
+}
+
+let extractedCount = 0;
+
+for (const file of filesToProcess) {
+  const content = fs.readFileSync(file, 'utf-8');
+  const s = new MagicString(content);
+
+  let templateStart = 0;
+  let hasFrontmatter = false;
+  let frontmatterEnd = 0;
+
+  if ((file.endsWith('.astro') || file.endsWith('.mdx')) && content.startsWith('---')) {
+    const secondFmIndex = content.indexOf('---', 3);
+    if (secondFmIndex !== -1) {
+      hasFrontmatter = true;
+      frontmatterEnd = secondFmIndex + 3;
+      templateStart = frontmatterEnd;
+    }
+  }
+
+  const templateContent = content.slice(templateStart);
+  const excludedRanges = [];
+  for (const blockMatch of templateContent.matchAll(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi)) {
+    excludedRanges.push([blockMatch.index, blockMatch.index + blockMatch[0].length]);
+  }
+
+  const textNodeRegex = />([^<>{}\r\n]+)</g;
+  let mNode;
+  const replacements = [];
+
+  while ((mNode = textNodeRegex.exec(templateContent)) !== null) {
+    if (excludedRanges.some(([start, end]) => mNode.index >= start && mNode.index < end)) {
+      continue;
+    }
+    const rawText = mNode[1].trim();
+    if (rawText.length < 3) continue;
+    if (rawText.startsWith('//') || rawText.startsWith('/*')) continue;
+
+    const latinSuffix = rawText
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .slice(0, 30)
+      .replace(/^_+|_+$/g, '');
+
+    const keySuffix =
+      latinSuffix ||
+      `text_${crypto.createHash('sha1').update(rawText).digest('hex').slice(0, 8)}`;
+    const key = `${namespace}_${keySuffix}`;
+
+    const textOffsetInTemplate = mNode.index + mNode[0].indexOf(mNode[1]);
+    const absoluteStart = templateStart + textOffsetInTemplate;
+    const absoluteEnd = absoluteStart + mNode[1].length;
+
+    replacements.push({
+      key,
+      text: rawText,
+      start: absoluteStart,
+      end: absoluteEnd,
+    });
+  }
+
+  if (replacements.length > 0) {
+    console.log(`Found ${replacements.length} string(s) in ${path.relative(rootDir, file)}`);
+    const missingKeys = [];
+
+    for (const r of replacements) {
+      extractedCount++;
+      const baseDictionary = mergedByLocale[BASE_LOCALE];
+      const keyExists = Boolean(baseDictionary && baseDictionary[r.key]);
+
+      if (autoAdd) {
+        if (baseDictionary && !keyExists) {
+          for (const loc of LOCALES) {
+            const val = loc === BASE_LOCALE ? r.text : `[TODO: ${loc}] ${r.text}`;
+            clientByLocale[loc][r.key] = val;
+            mergedByLocale[loc][r.key] = val;
+          }
+          const prefix = dryRun ? '[dry-run] Would create key' : '+ Key created';
+          console.log(`  ${prefix}: ${r.key} = "${r.text}" across locales: ${LOCALES.join(', ')}`);
+        }
+      } else if (replace && !keyExists) {
+        missingKeys.push(r.key);
+      }
+
+      if (replace) {
+        const call = /\bconst\s+locale\b|\{[^}]*\blocale\b[^}]*\}\s*=\s*Astro\.props/.test(
+          content
+        )
+          ? `{m.${r.key}({}, { locale })}`
+          : /\bcurrentLocale\b/.test(content)
+            ? `{m.${r.key}({}, { locale: currentLocale })}`
+            : `{m.${r.key}({})}`;
+        s.overwrite(r.start, r.end, call);
+      }
+    }
+
+    if (missingKeys.length > 0) {
+      const preview = missingKeys.slice(0, 5).join(', ') + (missingKeys.length > 5 ? ', …' : '');
+      console.warn(
+        `⚠️ ${missingKeys.length} extracted key(s) are missing from merged ${BASE_LOCALE} dictionary: ${preview}`
+      );
+      console.warn('   Re-run with --auto-add to create them; otherwise `npm run lint` will fail.');
+    }
+
+    if (replace) {
+      const currentCode = s.toString();
+      if (!currentCode.includes("import * as m from '@/paraglide/messages'")) {
+        if (file.endsWith('.astro')) {
+          if (hasFrontmatter) {
+            s.appendRight(3, "\nimport * as m from '@/paraglide/messages';");
+          } else {
+            s.prepend("---\nimport * as m from '@/paraglide/messages';\n---\n\n");
+          }
+        } else if (file.endsWith('.mdx')) {
+          if (hasFrontmatter) {
+            s.appendRight(frontmatterEnd, "\n\nimport * as m from '@/paraglide/messages';\n");
+          } else {
+            s.prepend("import * as m from '@/paraglide/messages';\n\n");
+          }
+        }
+      }
+    }
+
+    if (!dryRun && replace) {
+      fs.writeFileSync(file, s.toString(), 'utf-8');
+      console.log(`  ✓ Updated ${path.relative(rootDir, file)}`);
+    }
+  }
+}
+
+if (autoAdd && !dryRun && extractedCount > 0) {
+  for (const loc of LOCALES) {
+    writeClientMessages(loc, clientByLocale[loc], rootDir);
+  }
+  console.log('✅ Saved new dictionary keys across client/messages/*.json files');
+  compileMessages(rootDir);
+}
+
+console.log(`\n🎉 Extracted a total of ${extractedCount} item(s).`);
